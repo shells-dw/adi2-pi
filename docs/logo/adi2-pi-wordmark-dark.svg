@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 140" width="600" height="140">
+<g transform="translate(6 6)"><g transform="translate(1 -2)">
+  <mask id="wd" maskUnits="userSpaceOnUse" x="0" y="0" width="128" height="128"><rect width="128" height="128" fill="#fff"/>
+    <circle cx="62" cy="66" r="30" fill="none" stroke="#000" stroke-width="5.5"/>
+    <line x1="56.5" y1="58.9" x2="47.8" y2="47.9" stroke="#000" stroke-width="7" stroke-linecap="round"/><line x1="34.4" y1="93.6" x2="29.8" y2="98.2" stroke="#000" stroke-width="3.4" stroke-linecap="round"/><line x1="24.9" y1="78.1" x2="18.7" y2="80.1" stroke="#000" stroke-width="3.4" stroke-linecap="round"/><line x1="23.5" y1="59.9" x2="17.1" y2="58.9" stroke="#000" stroke-width="3.4" stroke-linecap="round"/><line x1="30.4" y1="43.1" x2="25.2" y2="39.3" stroke="#000" stroke-width="3.4" stroke-linecap="round"/><line x1="44.3" y1="31.3" x2="41.3" y2="25.5" stroke="#000" stroke-width="3.4" stroke-linecap="round"/><line x1="62.0" y1="27.0" x2="62.0" y2="20.5" stroke="#000" stroke-width="3.4" stroke-linecap="round"/><line x1="99.1" y1="78.1" x2="105.3" y2="80.1" stroke="#000" stroke-width="3.4" stroke-linecap="round"/><line x1="89.6" y1="93.6" x2="94.2" y2="98.2" stroke="#000" stroke-width="3.4" stroke-linecap="round"/>
+  </mask>
+  <path d="M62 66 L110.51 53.90 A50 50 0 1 1 82.34 20.32 Z" fill="#3fc1d9" mask="url(#wd)"/>
+  <path d="M62 66 L82.34 20.32 A50 50 0 0 1 110.51 53.90 Z" fill="#f0a23b" transform="translate(6.13 -5.14)"/>
+</g></g>
+<text x="150" y="92" font-family="Inter, 'Segoe UI', system-ui, sans-serif" font-size="64" font-weight="700" letter-spacing="-1" fill="#e7ebef">ADI-2-<tspan fill="#3fc1d9">Pi</tspan></text>
+<text x="153" y="122" font-family="Inter, 'Segoe UI', system-ui, sans-serif" font-size="17" font-weight="500" letter-spacing=".5" fill="#8d98a4">Raspberry Pi bridge for RME ADI-2</text>
+</svg>

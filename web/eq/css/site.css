@@ -1,0 +1,102 @@
+/* ADI-2-Pi look for the Headphone EQ generator: same colours, type, controls, header and
+   tabs as the rest of the site. Loaded after style.css and only overrides it. */
+
+:root {
+  --bg: #eef1f4; --surface: #ffffff; --sunk: #f5f7f9; --ink: #1b2127; --muted: #5f6b77;
+  --line: #d9dee4; --grid: #e7ebef;
+  --accent: #0f8ea8; --accent-ink: #0f8ea8; --on-accent: #ffffff; --accent-soft: rgba(15, 142, 168, .12);
+  --c-meas: #c27612; --c-target: #7d8996; --c-eq: #0f8ea8; --c-band: #8cc9d6; --c-result: #1f9d55;
+  --c-shade: rgba(15, 142, 168, 0.06);
+  --font-display: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-body: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --r: 12px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121418; --surface: #1a1e23; --sunk: #20252b; --ink: #e7ebef; --muted: #8d98a4;
+    --line: #2c333b; --grid: #23292f;
+    --accent: #3fc1d9; --accent-ink: #3fc1d9; --on-accent: #062027; --accent-soft: rgba(63, 193, 217, .16);
+    --c-meas: #f0a23b; --c-target: #8d98a4; --c-eq: #3fc1d9; --c-band: #2b6f7d; --c-result: #4fcf7d;
+    --c-shade: rgba(63, 193, 217, 0.05);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121418; --surface: #1a1e23; --sunk: #20252b; --ink: #e7ebef; --muted: #8d98a4;
+  --line: #2c333b; --grid: #23292f;
+  --accent: #3fc1d9; --accent-ink: #3fc1d9; --on-accent: #062027; --accent-soft: rgba(63, 193, 217, .16);
+  --c-meas: #f0a23b; --c-target: #8d98a4; --c-eq: #3fc1d9; --c-band: #2b6f7d; --c-result: #4fcf7d;
+  --c-shade: rgba(63, 193, 217, 0.05);
+  color-scheme: dark;
+}
+
+body { font-size: 15px; line-height: 1.4; -webkit-tap-highlight-color: transparent; }
+h1, h2, h3 { font-weight: 650; letter-spacing: 0; }
+
+/* ---- header and tabs (same as the main page) ---- */
+.site-top {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 16px; padding-top: max(10px, env(safe-area-inset-top));
+  background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
+}
+.site-brand { display: flex; align-items: center; gap: 10px; min-width: 0; text-decoration: none; color: var(--ink); }
+.site-logo { width: 34px; height: 34px; flex: none; display: block; }
+.site-title { display: block; font-weight: 650; }
+.site-sub { display: block; font-size: 12.5px; color: var(--muted); }
+.site-actions { display: flex; align-items: center; gap: 8px; }
+.site-icon {
+  font: 550 14px var(--font-body); color: var(--ink); background: var(--surface);
+  border: 1px solid var(--line); border-radius: 8px; min-height: 36px; padding: 6px 12px; cursor: pointer;
+}
+.site-icon { width: 36px; padding: 0; display: grid; place-items: center; }
+.site-icon svg { width: 18px; height: 18px; fill: currentColor; }
+.site-icon:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); filter: none; }
+.site-tabs {
+  display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none;
+  padding: 8px 16px 0; border-bottom: 1px solid var(--line);
+  position: sticky; top: 57px; z-index: 19; background: var(--bg);
+}
+.site-tabs::-webkit-scrollbar { display: none; }
+.site-tab {
+  color: var(--muted); text-decoration: none; font-weight: 550; padding: 9px 12px 11px; white-space: nowrap;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.site-tab:hover { color: var(--ink); }
+.site-tab[aria-current="page"] { color: var(--ink); border-bottom-color: var(--accent); }
+
+/* ---- cards and controls ---- */
+.layout { max-width: 1180px; padding-top: 16px; gap: 14px; }
+.group, .chart, .settings-out { border-radius: var(--r); }
+.group h2, .out-head h2 { font-size: 12px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.summary h2 { font-size: 1.6rem; }
+input[type="search"], input[type="text"], input[type="number"], select {
+  font-size: 15px; border-radius: 8px; padding: 7px 10px; min-height: 36px; background: var(--sunk);
+}
+input[type="number"] { font-variant-numeric: tabular-nums; font-family: var(--font-body); }
+td input[type="number"] { min-height: 30px; }
+button { font: 550 14px var(--font-body); border-radius: 8px; padding: 7px 12px; min-height: 36px; background: var(--accent); border-color: transparent; color: var(--on-accent); }
+button.ghost { background: var(--sunk); border-color: var(--line); }
+button.small { min-height: 30px; padding: 4px 10px; }
+.seg { border-radius: 9px; }
+.seg label { padding: 6px 0; font-weight: 600; color: var(--muted); background: var(--sunk); }
+.seg label:has(input:checked), .seg label.is-on { background: var(--accent-soft); color: var(--ink); }
+.list { border-radius: 8px; }
+.list li[aria-selected="true"] { background: var(--accent-soft); color: var(--ink); box-shadow: inset 3px 0 0 var(--accent); }
+.list li[aria-selected="true"] .form { color: var(--muted); }
+.export { border-radius: 10px; }
+#export-main .export { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.badge { border-radius: 99px; color: var(--on-accent); }
+.figures dd { font-family: var(--font-body); font-weight: 650; }
+.plot svg text { font-family: var(--font-body); }
+.net-note { border-radius: 10px; border-left-width: 3px; }
+.chip:has(input:checked), .chip.is-on { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); background: var(--accent-soft); }
+.foot { padding: 4px 2px 24px; }
+
+@media (max-width: 520px) {
+  .site-top { padding-left: 12px; padding-right: 12px; }
+  .site-tabs { padding-left: 8px; padding-right: 8px; }
+}
