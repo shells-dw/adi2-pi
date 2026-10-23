@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark light">
+  <meta name="theme-color" content="#16191d">
+  <title>ADI-2-Pi</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <img class="logo" src="logo.svg" alt="" width="34" height="34">
+      <div>
+        <div class="title" id="bridgeName">ADI-2-Pi</div>
+        <div class="sub"><span class="dot" id="connDot"></span><span id="connText">Connecting…</span></div>
+      </div>
+    </div>
+    <div class="top-actions">
+      <label class="setup-pick">
+        <span class="sr">Setup</span>
+        <select id="setupSelect" aria-label="Load setup"></select>
+      </label>
+      <button class="icon-btn" id="themeBtn" title="Light / dark" aria-label="Switch light or dark">
+        <svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <nav class="tabs" id="tabs" role="tablist"></nav>
+
+  <div class="banner" id="banner" hidden></div>
+
+  <main id="main"></main>
+
+  <template id="tplKnob">
+    <div class="knob-wrap">
+      <div class="knob" tabindex="0" role="slider">
+        <svg viewBox="0 0 120 120" aria-hidden="true">
+          <path class="knob-track" d=""/>
+          <path class="knob-limit" d=""/>
+          <path class="knob-value" d=""/>
+          <circle class="knob-face" cx="60" cy="60" r="38"/>
+          <line class="knob-tick" x1="60" y1="33" x2="60" y2="25"/>
+        </svg>
+        <div class="knob-readout"><span class="knob-num">–</span><span class="knob-unit">dB</span></div>
+      </div>
+      <div class="knob-steps">
+        <button class="btn step" data-step="-1" aria-label="Volume down">−</button>
+        <button class="btn step" data-step="1" aria-label="Volume up">+</button>
+      </div>
+    </div>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>

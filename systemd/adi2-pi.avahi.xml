@@ -1,0 +1,17 @@
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<!-- Announces the bridge on the network (Bonjour / mDNS) so the Stream Deck plugin and apps can find it. -->
+<service-group>
+  <name replace-wildcards="yes">ADI-2-Pi on %h</name>
+  <service>
+    <type>_adi2._tcp</type>
+    <port>@PORT@</port>
+    <txt-record>path=/ws</txt-record>
+    <txt-record>api=1</txt-record>
+  </service>
+  <service>
+    <type>_http._tcp</type>
+    <port>@PORT@</port>
+    <txt-record>path=/</txt-record>
+  </service>
+</service-group>

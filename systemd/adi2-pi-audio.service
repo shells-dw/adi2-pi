@@ -1,0 +1,40 @@
+[Unit]
+Description=ADI-2-Pi audio (PipeWire for Bluetooth and streaming to the ADI-2)
+Documentation=file:///opt/adi2-pi/README.md
+After=sound.target bluetooth.service dbus.service
+Wants=bluetooth.service
+
+[Service]
+Type=simple
+User=adi2pi
+Group=adi2pi
+SupplementaryGroups=audio
+# its own runtime dir (sockets), config and state; nothing shared with desktop sessions
+RuntimeDirectory=adi2-pi-audio
+RuntimeDirectoryMode=0700
+StateDirectory=adi2-pi/audio-state
+Environment=XDG_RUNTIME_DIR=/run/adi2-pi-audio
+Environment=XDG_CONFIG_HOME=/opt/adi2-pi/audio/xdg
+Environment=XDG_STATE_HOME=/var/lib/adi2-pi/audio-state
+# WirePlumber needs a D-Bus session bus; this one exists only for this service
+ExecStart=/usr/bin/dbus-run-session -- /opt/adi2-pi/audio/run-audio.sh
+Restart=always
+RestartSec=3
+# (membership in "bluetooth" comes from the user database: the installer adds it)
+# real-time audio threads without rtkit
+LimitRTPRIO=95
+LimitNICE=-19
+LimitMEMLOCK=infinity
+Nice=-11
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+DevicePolicy=closed
+DeviceAllow=char-alsa rw
+RestrictAddressFamilies=AF_UNIX AF_BLUETOOTH AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target

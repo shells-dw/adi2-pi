@@ -1,0 +1,36 @@
+{
+  "name": "adi2-pi",
+  "version": "1.0.0",
+  "description": "Network remote and audio bridge for RME ADI-2 series converters on a Raspberry Pi",
+  "keywords": [
+    "rme",
+    "adi-2",
+    "raspberry-pi",
+    "midi",
+    "sysex",
+    "bluetooth",
+    "airplay",
+    "stream-deck"
+  ],
+  "homepage": "https://github.com/shells-dw/adi2-pi",
+  "bugs": {
+    "url": "https://github.com/shells-dw/adi2-pi/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shells-dw/adi2-pi.git"
+  },
+  "license": "GPL-3.0-or-later",
+  "author": "shells-dw",
+  "bin": {
+    "adi2-pi": "bin/adi2-pi.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node bin/adi2-pi.js",
+    "mock": "node bin/adi2-pi.js --mock pro --port 8080",
+    "test": "node --test --test-concurrency=1 test/*.test.js"
+  }
+}
