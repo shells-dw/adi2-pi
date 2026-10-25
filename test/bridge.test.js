@@ -192,8 +192,12 @@ test('unplug and replug', async () => {
     const r = await post(b.base, '/api/set', { ch: 'line', id: 'vol', value: -10 });
     assert.strictEqual(r.status, 409, 'the unit can\'t take it right now (not a bad request)');
     assert.match(r.body.error, /not connected/);
+    // while unplugged, the old unit's values are gone; the replugged one is read out again
+    assert.strictEqual(b.dev.state.size, 0, 'no values from the unplugged unit');
+    assert.strictEqual(b.dev.lastStatus, null);
     b.mock.plug();
     await until(() => b.dev.ready);
+    assert.ok(b.dev.state.size > 20, 'values read from the unit again');
   } finally { b.stop(); }
 });
 
@@ -201,6 +205,9 @@ test('settings validation', async () => {
   const b = await start();
   try {
     assert.strictEqual((await post(b.base, '/api/settings', { limits: { ph12: 20 } })).status, 400);
+    const unk = await post(b.base, '/api/settings', { trigge: { enabled: true } });
+    assert.strictEqual(unk.status, 400, 'an unknown setting is an error, not silently ignored');
+    assert.match(unk.body.error, /unknown setting trigge/);
     assert.strictEqual((await post(b.base, '/api/settings', { link: ['ph12'] })).body.link.length, 0, 'a link needs two outputs');
     const ok = await post(b.base, '/api/settings', { name: 'Desk', limits: { ph12: -6 } });
     assert.strictEqual(ok.body.name, 'Desk');

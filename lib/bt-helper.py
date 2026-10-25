@@ -32,6 +32,7 @@ BLUEZ = "org.bluez"
 ADAPTER = "org.bluez.Adapter1"
 DEVICE = "org.bluez.Device1"
 BATTERY = "org.bluez.Battery1"
+PLAYER = "org.bluez.MediaPlayer1"   # AVRCP: play state and track of a phone playing into the Pi
 PROPS = "org.freedesktop.DBus.Properties"
 OM = "org.freedesktop.DBus.ObjectManager"
 AGENT_PATH = "/net/adi2pi/agent"
@@ -227,6 +228,8 @@ class Helper:
         entry.update(dict(changed))
         for k in invalidated:
             entry.pop(str(k), None)
+        if str(iface) == PLAYER and set(changed.keys()) <= {"Position"} and not invalidated:
+            return  # the position ticks every second: not worth a state message
         if str(iface) == DEVICE and changed.get("Paired") and not entry.get("Trusted"):
             # paired just now (only possible through the agent's policy): trust it, so it reconnects later
             try:
@@ -277,6 +280,7 @@ class Helper:
                 "blocked": bool(d.get("Blocked", False)),
                 "rssi": int(d["RSSI"]) if "RSSI" in d else None,
                 "battery": int(ifs[BATTERY]["Percentage"]) if BATTERY in ifs and "Percentage" in ifs[BATTERY] else None,
+                "player": self._player(p),
                 # what it can do with audio: from its services, or (before pairing) its device class
                 "canReceive": A2DP_SINK in uuids or (not uuids and (cls >> 8) & 0x1f == 0x04 and (cls >> 2) & 0x3f in (1, 2, 5, 6, 7, 10)),
                 "canSend": A2DP_SOURCE in uuids or (not uuids and (cls >> 8) & 0x1f in (0x01, 0x02)),
@@ -298,6 +302,24 @@ class Helper:
             "scanUntil": int(self.scan_until * 1000) if time.time() < self.scan_until else None,
             "devices": devices,
         }
+
+    def _player(self, device_path):
+        """AVRCP player of a device: {status, track: {title, artist, album, duration}} or None."""
+        for p, ifs in self.objects.items():
+            pl = ifs.get(PLAYER)
+            if pl is None or not p.startswith(device_path + "/"):
+                continue
+            t = pl.get("Track") or {}
+            return {
+                "status": str(pl.get("Status", "")),
+                "track": {
+                    "title": str(t.get("Title", "")) or None,
+                    "artist": str(t.get("Artist", "")) or None,
+                    "album": str(t.get("Album", "")) or None,
+                    "duration": int(t.get("Duration", 0)) or None,
+                },
+            }
+        return None
 
     def emit(self):
         if self.emit_timer is None:

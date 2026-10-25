@@ -16,6 +16,10 @@
 #   --with-spotify      Spotify Connect: adds raspotify's apt repository (librespot)
 #   --with-roon         Roon Bridge: downloads and runs Roon's own installer
 #   --journal-ram       keep the system log in RAM only (less SD card writes; logs are lost on reboot)
+#   --with-ups          switch I²C on and set up a Waveshare UPS HAT even if the ADI-2 trigger uses GPIO3
+#   --no-ups            don't look for a UPS HAT
+#   --system-node       Node.js from Raspberry Pi OS (Trixie: 20, Bookworm: 18) instead of Node.js 24 LTS
+#                       from NodeSource's apt repository; removes that repository if it was added before
 #   -y, --yes           don't ask anything (scripted installs): a taken port 80 becomes 8080
 set -euo pipefail
 
@@ -35,6 +39,8 @@ WITH_AP2=0
 REBUILD_AP2=0
 WITH_SPOTIFY=0
 WITH_ROON=0
+UPS_MODE=auto
+SYSTEM_NODE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --port) PORT="$2"; shift 2 ;;
@@ -46,8 +52,11 @@ while [ $# -gt 0 ]; do
     --rebuild-airplay2) WITH_AP2=1; REBUILD_AP2=1; shift ;;
     --with-spotify) WITH_SPOTIFY=1; shift ;;
     --with-roon) WITH_ROON=1; shift ;;
+    --with-ups) UPS_MODE=on; shift ;;
+    --no-ups) UPS_MODE=off; shift ;;
+    --system-node) SYSTEM_NODE=1; shift ;;
     -y|--yes) ASSUME_YES=1; shift ;;
-    -h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -92,11 +101,20 @@ port_in_use() {
   # a port is "free" if nothing listens, or it's our own (re-install)
   local p="$1"
   ss -Hltn "sport = :$p" 2>/dev/null | grep -q . || return 1
-  [ "$WAS_RUNNING" -eq 1 ] && ss -Hltnp "sport = :$p" 2>/dev/null | grep -q 'node' && return 1
+  # ours: by the service's PID (the process name isn't "node" on every Node.js version: 24 shows "MainThread")
+  if [ "$WAS_RUNNING" -eq 1 ]; then
+    local pid; pid="$(systemctl show -p MainPID --value "$APP" 2>/dev/null || true)"
+    [ -n "$pid" ] && [ "$pid" != 0 ] && grep -q "pid=$pid," <<<"$(ss -Hltnp "sport = :$p" 2>/dev/null || true)" && return 1
+  fi
   return 0
 }
 if [ -f "$DATA/settings.json" ]; then
-  CUR_PORT="$(grep -oE '"port"[[:space:]]*:[[:space:]]*[0-9]+' "$DATA/settings.json" 2>/dev/null | grep -oE '[0-9]+$' || true)"
+  # the top-level "port" only (other settings, e.g. MQTT, have a port too)
+  if command -v node >/dev/null 2>&1; then
+    CUR_PORT="$(node -e 'try { const p = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).port; if (Number.isInteger(p) && p > 0 && p < 65536) console.log(p); } catch {}' "$DATA/settings.json" 2>/dev/null || true)"
+  else
+    CUR_PORT="$(grep -oE '"port"[[:space:]]*:[[:space:]]*[0-9]+' "$DATA/settings.json" 2>/dev/null | head -n1 | grep -oE '[0-9]+$' || true)"
+  fi
   CUR_PORT="${CUR_PORT:-80}"
 else
   CUR_PORT=""
@@ -130,7 +148,7 @@ else
 fi
 
 # the steps this run takes
-TOTAL=4
+TOTAL=5
 [ "$AUDIO" -eq 1 ] && TOTAL=$((TOTAL + 1))
 [ "$STREAMING" -eq 1 ] && TOTAL=$((TOTAL + 1 + WITH_AP2 + WITH_SPOTIFY + WITH_ROON))
 
@@ -143,7 +161,7 @@ export DEBIAN_FRONTEND=noninteractive
 if command -v fuser >/dev/null 2>&1 && fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock >/dev/null 2>&1; then
   say "another package update is running – waiting for it to finish…"
 fi
-PKGS="nodejs avahi-daemon alsa-utils gpiod"   # gpiod: reading the ADI-2 trigger on GPIO3 (optional feature)
+PKGS="avahi-daemon alsa-utils gpiod i2c-tools"   # Node.js below; gpiod: ADI-2 trigger; i2c-tools: UPS HAT (both optional)
 # audio: PipeWire + WirePlumber (Bluetooth codecs SBC/SBC-XQ, aptX/aptX HD, LDAC come with
 # libspa-0.2-bluetooth), BlueZ, and Python's D-Bus bindings for pairing
 [ "$AUDIO" -eq 1 ] && PKGS="$PKGS pipewire pipewire-bin wireplumber libspa-0.2-bluetooth bluez dbus python3 python3-dbus python3-gi rfkill"
@@ -155,6 +173,59 @@ if [ "$AUDIO" -eq 1 ] && [ "$STREAMING" -eq 1 ]; then
 fi
 say "updating the package lists…"
 apt-get -o DPkg::Lock::Timeout=900 update -qq
+
+# Node.js: 24 LTS from NodeSource's apt repository (amd64/arm64 only), or Raspberry Pi OS's own
+# with --system-node. Same file names as NodeSource's setup script, so either replaces the other.
+NS_KEY=/usr/share/keyrings/nodesource.gpg
+NS_LIST=/etc/apt/sources.list.d/nodesource.sources
+NS_PIN=/etc/apt/preferences.d/nodejs
+NODE_FROM=nodesource
+[ "$SYSTEM_NODE" -eq 1 ] && NODE_FROM=system
+case "$ARCH" in
+  amd64|arm64) ;;
+  *) [ "$NODE_FROM" = nodesource ] && warn "NodeSource has Node.js 24 for 64-bit systems only – using Raspberry Pi OS's Node.js"; NODE_FROM=system ;;
+esac
+ns_remove() { rm -f "$NS_LIST" "$NS_PIN" "$NS_KEY" /usr/share/keyrings/nodesource.asc; }
+if [ "$NODE_FROM" = nodesource ]; then
+  say "Node.js 24 LTS: NodeSource's apt repository"
+  command -v curl >/dev/null 2>&1 || apt-get -o DPkg::Lock::Timeout=900 install -y -qq --no-install-recommends curl >/dev/null
+  command -v gpg >/dev/null 2>&1 || apt-get -o DPkg::Lock::Timeout=900 install -y -qq --no-install-recommends gnupg >/dev/null
+  mkdir -p /usr/share/keyrings
+  if curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor --yes -o "$NS_KEY.tmp" 2>/dev/null && [ -s "$NS_KEY.tmp" ]; then
+    mv -f "$NS_KEY.tmp" "$NS_KEY"; chmod 0644 "$NS_KEY"
+    printf 'Types: deb\nURIs: https://deb.nodesource.com/node_24.x\nSuites: nodistro\nComponents: main\nArchitectures: %s\nSigned-By: %s\n' "$ARCH" "$NS_KEY" > "$NS_LIST"
+    printf 'Package: nodejs\nPin: origin deb.nodesource.com\nPin-Priority: 600\n' > "$NS_PIN"
+    # older NodeSource setups (one-line .list) name the same URL with another Signed-By: apt then rejects both
+    for f in /etc/apt/sources.list.d/*.list; do
+      [ -f "$f" ] && grep -q 'deb\.nodesource\.com' "$f" && { say "removing the older NodeSource entry $f"; rm -f "$f"; }
+    done
+    NS_OUT="$(apt-get -o DPkg::Lock::Timeout=900 update -qq 2>&1)" || true
+    # (captured first: grep -q stops reading early, and with pipefail the pipe would then fail)
+    NS_POLICY="$(apt-cache policy nodejs 2>/dev/null || true)"
+    if ! grep -q 'deb\.nodesource\.com' <<<"$NS_POLICY"; then
+      warn "NodeSource's repository can't be read – using Raspberry Pi OS's Node.js. apt said:"
+      printf '%s\n' "$NS_OUT" | grep -iE 'nodesource|^(E|W|Err):' | head -n 8 | sed 's/^/        /' >&2
+      ns_remove; apt-get -o DPkg::Lock::Timeout=900 update -qq; NODE_FROM=system
+    fi
+  else
+    rm -f "$NS_KEY.tmp"
+    warn "NodeSource's signing key can't be downloaded – using Raspberry Pi OS's Node.js"
+    NODE_FROM=system
+  fi
+fi
+if [ "$NODE_FROM" = nodesource ]; then
+  apt-get -o DPkg::Lock::Timeout=900 install -y -qq nodejs >/dev/null || die "installing Node.js 24 failed – run again with --system-node to use Raspberry Pi OS's Node.js"
+else
+  if [ -f "$NS_LIST" ]; then
+    say "removing NodeSource's repository"
+    ns_remove; apt-get -o DPkg::Lock::Timeout=900 update -qq
+  fi
+  # the newest version Raspberry Pi OS has; may be older than an installed NodeSource one
+  NODE_V="$(apt-cache madison nodejs 2>/dev/null | awk 'NR==1 { print $3 }')"
+  [ -n "$NODE_V" ] || die "Raspberry Pi OS has no nodejs package here"
+  apt-get -o DPkg::Lock::Timeout=900 install -y -qq --allow-downgrades --no-install-recommends "nodejs=$NODE_V" >/dev/null
+fi
+
 say "${D}$PKGS${N}"
 apt-get -o DPkg::Lock::Timeout=900 install -y -qq --no-install-recommends $PKGS >/dev/null
 # receivers: together if possible, else one by one, so one missing package only costs that receiver
@@ -174,7 +245,8 @@ fi
 
 NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
 [ "$NODE_MAJOR" -ge 18 ] || die "Node.js 18 or newer is needed, found $(node -v 2>/dev/null || echo none). Please update Raspberry Pi OS to Bookworm or newer."
-ok "packages installed (Node.js $(node -v))"
+[ "$NODE_FROM" = nodesource ] && [ "$NODE_MAJOR" -lt 24 ] && warn "Node.js $(node -v) is installed instead of 24 – NodeSource's package was not used"
+ok "packages installed (Node.js $(node -v), $([ "$NODE_FROM" = nodesource ] && echo NodeSource || echo "Raspberry Pi OS"))"
 
 # ---------------------------------------------------------------- user + files
 step "Copying ADI-2-Pi to $DEST"
@@ -186,6 +258,7 @@ else
 fi
 # GPIO access (trigger: shut down with the ADI-2) and permission to power the Pi off
 getent group gpio >/dev/null && usermod -a -G gpio "$SVC_USER"
+getent group i2c >/dev/null && usermod -a -G i2c "$SVC_USER"
 if [ -d /etc/polkit-1/rules.d ] || command -v pkaction >/dev/null 2>&1; then
   install -d /etc/polkit-1/rules.d
   cat > /etc/polkit-1/rules.d/50-adi2-pi.rules <<'EOF3'
@@ -208,7 +281,7 @@ cp -r "$SRC/bin" "$SRC/lib" "$SRC/web" "$SRC/audio" "$DEST/"
 cp "$SRC/package.json" "$SRC/README.md" "$DEST/"
 [ -d "$SRC/docs" ] && cp -r "$SRC/docs" "$DEST/"
 cp "$SRC/uninstall.sh" "$DEST/"
-chmod 0755 "$DEST/bin/adi2-pi.js" "$DEST/uninstall.sh" "$DEST/audio/run-audio.sh" "$DEST/lib/bt-helper.py"
+chmod 0755 "$DEST/bin/adi2-pi.js" "$DEST/bin/adi2-pi-hook.js" "$DEST/uninstall.sh" "$DEST/audio/run-audio.sh" "$DEST/lib/bt-helper.py"
 chown -R root:root "$DEST"
 
 # ---------------------------------------------------------------- settings (port)
@@ -220,7 +293,7 @@ node -e '
   if (s.port !== port) { s.port = port; fs.writeFileSync(f + ".tmp", JSON.stringify(s, null, 2) + "\n"); fs.renameSync(f + ".tmp", f); }
 ' "$DATA/settings.json" "$PORT"
 chown "$SVC_USER:$SVC_USER" "$DATA/settings.json"
-chmod 0640 "$DATA/settings.json"
+chmod 0600 "$DATA/settings.json"   # holds the access key hash and the MQTT password
 ok "version $(node -p "require('$DEST/package.json').version"), settings in $DATA, web page on port $PORT"
 
 # ---------------------------------------------------------------- PipeWire MIDI
@@ -431,6 +504,66 @@ EOF2
   fi
 fi
 
+# ---------------------------------------------------------------- UPS HAT (optional)
+step "Looking for a UPS HAT"
+CONFIG_TXT=/boot/firmware/config.txt; [ -f "$CONFIG_TXT" ] || CONFIG_TXT=/boot/config.txt
+# the ADI-2 trigger on GPIO3 and I²C (GPIO2/3) exclude each other
+TRIGGER_GPIO3=0
+if [ -f "$DATA/settings.json" ] && node -e "const t=require('$DATA/settings.json').trigger||{};process.exit(t.enabled&&t.source==='gpio'&&(t.pin||3)===3?0:1)" 2>/dev/null; then TRIGGER_GPIO3=1; fi
+ups_probe() {   # prints the model found on I²C bus 1, or nothing
+  if [ "$(i2cget -y 1 0x2d 0x00 b 2>/dev/null)" = "0x0a" ]; then echo "Waveshare UPS HAT (E)"; return; fi
+  if i2cget -y 1 0x42 0x02 w >/dev/null 2>&1; then echo "Waveshare UPS HAT / UPS HAT (B)"; return; fi
+  if i2cget -y 1 0x43 0x02 w >/dev/null 2>&1; then echo "Waveshare UPS HAT (C) / (D)"; return; fi
+}
+i2c_persist() {
+  if command -v raspi-config >/dev/null 2>&1; then raspi-config nonint do_i2c 0 >/dev/null 2>&1 && return; fi
+  grep -qE '^\s*dtparam=i2c_arm=on' "$CONFIG_TXT" 2>/dev/null || echo 'dtparam=i2c_arm=on' >> "$CONFIG_TXT"
+  echo i2c-dev > /etc/modules-load.d/i2c-dev.conf
+}
+UPS_FOUND=""
+if [ "$UPS_MODE" = off ]; then
+  say "skipped (--no-ups)"
+else
+  I2C_WAS_ON=0; [ -e /dev/i2c-1 ] && I2C_WAS_ON=1
+  if [ "$I2C_WAS_ON" -eq 0 ]; then
+    if [ "$TRIGGER_GPIO3" -eq 1 ] && [ "$UPS_MODE" != on ]; then
+      ANS=n
+      if [ "$ASSUME_YES" -eq 0 ] && [ -t 0 ]; then
+        say "The ADI-2 trigger uses GPIO3. Looking for a UPS HAT needs I²C on GPIO2/3, which stops the"
+        say "trigger on GPIO3 (it can move to another GPIO, without starting the Pi)."
+        printf '      Switch I²C on and look for a UPS HAT? [y/N] '
+        read -r ANS || ANS=n
+      fi
+      case "$ANS" in y|Y|yes) ;; *) say "not looking (I²C stays off; --with-ups switches it on)"; UPS_MODE=off ;; esac
+    fi
+    if [ "$UPS_MODE" != off ]; then
+      # on for now only; kept on below when a UPS HAT answers
+      { command -v dtparam >/dev/null 2>&1 && dtparam i2c_arm=on >/dev/null 2>&1; modprobe i2c-dev 2>/dev/null; } || true
+      sleep 1
+    fi
+  fi
+  if [ "$UPS_MODE" != off ]; then
+    if [ -e /dev/i2c-1 ]; then UPS_FOUND="$(ups_probe)"; fi
+    if [ -n "$UPS_FOUND" ]; then
+      i2c_persist
+      ok "$UPS_FOUND found – battery and power on the System tab; shuts the Pi down on battery (adjustable)"
+      if [ "$TRIGGER_GPIO3" -eq 1 ]; then
+        warn "the ADI-2 trigger was set to GPIO3, which I²C uses now – choose another GPIO for it on the System tab"
+      fi
+    elif [ -e /dev/i2c-1 ]; then
+      if [ "$UPS_MODE" = on ]; then i2c_persist; warn "no UPS HAT answered on I²C (0x2D, 0x42, 0x43) – I²C stays on"
+      else say "no UPS HAT found"; fi
+    else
+      warn "I²C could not be switched on – no UPS HAT check (reboot and run the installer again)"
+    fi
+  fi
+fi
+# UPS HAT (E): after a power-off on battery, tell the HAT to switch off; it starts the Pi again when power returns
+if [ "$UPS_FOUND" = "Waveshare UPS HAT (E)" ]; then
+  install -d /usr/lib/systemd/system-shutdown
+  install -m 0755 "$SRC/systemd/adi2-pi-ups-off" /usr/lib/systemd/system-shutdown/adi2-pi-ups-off
+fi
+
 # ---------------------------------------------------------------- journal in RAM (optional)
 step "Starting ADI-2-Pi"
 if [ "$JOURNAL_RAM" -eq 1 ]; then
@@ -471,7 +604,7 @@ printf '  Open     %s%s%s  (or %s)\n' "$B" "$URL" "$N" "$IPURL"
 [ "$AUDIO" -eq 1 ] && printf '  Pair     phones and headphones on the Bluetooth tab\n'
 printf '  Log      journalctl -u %s -f\n' "$APP"
 printf '  Remove   sudo %s/uninstall.sh\n' "$DEST"
-if ! journalctl -u "$APP" -n 20 --no-pager 2>/dev/null | grep -q 'answers on ID'; then
+if ! grep -q 'answers on ID' <<<"$(journalctl -u "$APP" -n 20 --no-pager 2>/dev/null || true)"; then
   printf '\n  %sNo ADI-2 answered yet.%s Connect it by USB and set MIDI Control to ON\n' "$Y" "$N"
   printf '  (Device Mode menu on the Pro, Remap Keys/Diag on the DAC).\n'
 fi

@@ -12,7 +12,7 @@
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/site.css">
 <meta name="color-scheme" content="dark light">
-<script>try { var t = JSON.parse(localStorage.getItem('adi2.theme')); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
+<script>try { var t = JSON.parse(localStorage.getItem('adi2.theme')); document.documentElement.dataset.theme = t === 'light' ? 'light' : 'dark'; } catch (e) { document.documentElement.dataset.theme = 'dark'; }</script>
 </head>
 <body>
 <!--APP-->
@@ -39,6 +39,7 @@
   <a class="site-tab" href="/#bluetooth">Bluetooth</a>
   <a class="site-tab" href="/#streaming">Streaming</a>
   <a class="site-tab" href="/#state">State</a>
+  <a class="site-tab" href="/#automation">Scenes &amp; Actions</a>
   <a class="site-tab" href="/eq/" aria-current="page">Headphone EQ</a>
   <a class="site-tab" href="/#bridge">System</a>
 </nav>
@@ -342,6 +343,7 @@
   </main>
 </div>
 <!--/APP-->
+<script src="../auth.js"></script>
 <script type="module" src="js/app.js"></script>
 </body>
 </html>

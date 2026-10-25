@@ -13,6 +13,7 @@ const { Settings } = require('../lib/settings');
 const { createServer } = require('../lib/server');
 const { MockBluetooth, MockAudio, MockReceivers } = require('../lib/bt-mock');
 const { AutoSource } = require('../lib/autosource');
+const { Updates } = require('../lib/updates');
 
 const quiet = { info() {}, warn() {}, debug() {} };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -32,13 +33,16 @@ async function start() {
   const receivers = new MockReceivers({ getSettings: () => settings.get(), updateSettings: (p) => settings.update(p) });
   const autoSource = new AutoSource({ dev, audio, settings, log: quiet, holdMs: 60000 });
   const usbAudio = { status: () => ({ available: true, card: 9, open: false, rate: null, channels: null, owner: null, lastSet: null }), setRate: async (r) => { if (!(r >= 44100 && r <= 768000)) throw Object.assign(new Error('rate must be 44100…768000'), { status: 400 }); } };
-  const { server, wss } = createServer({ dev, settings, version: 'test', log: quiet, bt, audio, receivers, autoSource, usbAudio });
+  // update check with a fetch that fails the test if it is called (the check is off)
+  const updates = new Updates({ settings, version: 'test', log: quiet, fetch: async () => { throw new Error('update check contacted the network while off'); } });
+  updates.start();
+  const { server, wss } = createServer({ dev, settings, version: 'test', log: quiet, bt, audio, receivers, autoSource, usbAudio, updates });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   dev.start(); bt.start(); audio.start(); receivers.start(); autoSource.start();
   const port = server.address().port;
   const base = `http://127.0.0.1:${port}`;
   await until(() => dev.ready, 5000, 'device ready');
-  const stop = () => { autoSource.stop(); receivers.stop(); bt.stop(); wss.close(); dev.stop(); server.close(); };
+  const stop = () => { updates.stop(); autoSource.stop(); receivers.stop(); bt.stop(); wss.close(); dev.stop(); server.close(); };
   return { mock, dev, settings, bt, audio, base, port, stop };
 }
 
@@ -87,10 +91,11 @@ test('WebSocket: greeting, sets by name/address, delta, clamping, broadcasts, er
     assert.deepStrictEqual(a.msgs.slice(0, 3).map((m) => m.t), ['hello', 'state', 'settings']);
     const hello = a.msgs[0];
     assert.strictEqual(hello.api, 1);
-    assert.deepStrictEqual(Object.keys(hello.bridge).sort(), ['host', 'name', 'version']);
+    assert.deepStrictEqual(Object.keys(hello.bridge).sort(), ['auth', 'host', 'name', 'version', 'viewOpen']);
     for (const k of ['connected', 'ready', 'answering', 'id', 'model', 'modelName', 'port', 'card', 'problem']) assert.ok(k in hello.device, `device.${k}`);
     const st = a.msgs[1];
-    for (const k of ['device', 'p', 'setups', 'eqPresets', 'status', 'statusInfo', 'silences', 'bluetooth', 'streaming', 'routing']) assert.ok(k in st, `state.${k}`);
+    assert.ok(st.updates && st.updates.check === false, 'state.updates');
+    for (const k of ['device', 'p', 'setups', 'eqPresets', 'unitStatus', 'statusInfo', 'silences', 'bluetooth', 'streaming', 'routing']) assert.ok(k in st, `state.${k}`);
     assert.strictEqual(st.setups.length, 9);
     assert.strictEqual(st.eqPresets.length, 20);
     assert.strictEqual(typeof st.p['9.12'], 'number');
@@ -222,7 +227,8 @@ test('WebSocket: setups, EQ presets, monitor, raw, settings, Bluetooth, streamin
 
     // the status message: in the state, and as 'status' when it changes
     const gs = await a.req({ t: 'get' });
-    assert.strictEqual(typeof gs.status, 'string');
+    assert.strictEqual(typeof gs.unitStatus, 'string');
+    assert.ok(!('status' in gs), 'the hex string is unitStatus; status is only the code of err replies');
     assert.ok(gs.statusInfo && typeof gs.statusInfo.revision === 'number');
 
     // bridge settings: patch, reply, broadcast
@@ -278,7 +284,7 @@ test('HTTP: every documented route, status codes, content types', async () => {
     assert.ok(r.body.params.device.some((p) => p.id === 'loadvol' && p.idx === 62));
 
     r = await json(B, '/api/state');
-    for (const k of ['device', 'p', 'setups', 'eqPresets', 'status', 'statusInfo', 'silences', 'bluetooth', 'streaming', 'routing']) assert.ok(k in r.body, `state.${k}`);
+    for (const k of ['device', 'p', 'setups', 'eqPresets', 'unitStatus', 'statusInfo', 'silences', 'bluetooth', 'streaming', 'routing']) assert.ok(k in r.body, `state.${k}`);
     r = await json(B, '/api/state?view=named');
     assert.strictEqual(typeof r.body.state.ph34.vol, 'number');
     assert.strictEqual(typeof r.body.state.line.eq.L.b3f, 'number');
@@ -308,7 +314,13 @@ test('HTTP: every documented route, status codes, content types', async () => {
     assert.deepStrictEqual(r.body, { t: 'ok' });
 
     r = await json(B, '/api/status');
-    for (const k of ['status', 'info', 'answering', 'silences']) assert.ok(k in r.body);
+    for (const k of ['unitStatus', 'info', 'answering', 'silences']) assert.ok(k in r.body);
+    // update check: off by default, nothing asked
+    r = await json(B, '/api/updates');
+    assert.strictEqual(r.body.check, false);
+    assert.strictEqual(r.body.lastCheck, null);
+    assert.strictEqual(r.body.releasesUrl, 'https://github.com/shells-dw/adi2-pi/releases');
+    for (const k of ['current', 'checking', 'latest', 'available', 'error']) assert.ok(k in r.body, `updates.${k}`);
     r = await json(B, '/api/sent');
     assert.ok(Array.isArray(r.body) && r.body.some((x) => /Phones 3\/4 · Volume = -12/.test(x.what)));
 

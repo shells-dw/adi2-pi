@@ -79,3 +79,21 @@ test('status message: RME example (SE) and an ADI-2 Pro EX capture', () => {
   assert.strictEqual(ex.extra, '00 00', 'the EX sends two more bytes than the table');
   assert.strictEqual(P.parseStatus(P.unhex('05 75')), null);
 });
+
+test('digital inputs from the status message (ADI-2 Pro EX captures)', () => {
+  const st = (h) => P.parseStatus(h.split(' ').map((x) => parseInt(x, 16)));
+  const cases = [
+    ['05 50 65 0B 40 00 00 02 00 01 02 02 00 00', false, false], // nothing connected
+    ['05 0A 45 08 40 00 04 02 00 01 02 02 00 00', false, true],  // coax
+    ['05 3A 45 08 48 00 00 02 00 01 02 02 00 00', false, true],  // optical (SPDIF In = Optical)
+    ['05 75 44 08 48 00 0A 02 00 01 02 02 00 00', true, false],  // AES
+    ['05 75 44 08 40 00 0A 02 00 01 02 02 00 00', true, false],  // AES, sender stopped
+    ['05 70 49 08 40 00 08 06 00 01 02 02 00 00', false, false], // AES removed
+    ['05 30 40 08 40 00 00 02 00 01 02 02 00 00', false, false], // clock AES, cable removed
+  ];
+  for (const [h, aes, spdif] of cases) assert.deepStrictEqual(P.digitalInputs(st(h), 'pro'), { aes, spdif }, h);
+  assert.strictEqual(P.digitalInputs(st(cases[0][0]), 'dac'), null, 'not decoded for other models');
+  // one bit of a pair (during a rate change): the previous value stays
+  const mixed = st('05 74 44 08 40 00 0A 02 00 01 02 02 00 00'); // bit 21 only
+  assert.strictEqual(P.digitalInputs(mixed, 'pro', { aes: true, spdif: false }).aes, true);
+});
