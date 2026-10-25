@@ -14,9 +14,14 @@ rm -f /etc/wireplumber/main.lua.d/51-adi2-pi-sessions.lua /etc/wireplumber/bluet
 # the receivers' own services back as they were (masked by the installer); Roon's override off
 for u in shairport-sync squeezelite snapclient gmediarender raspotify; do systemctl unmask "$u" >/dev/null 2>&1 || true; done
 for d in /etc/systemd/system/roonbridge*.service.d; do [ -f "$d/adi2-pi.conf" ] && rm -f "$d/adi2-pi.conf"; done
-# Bluetooth device class back to what it was
-if [ -f /etc/bluetooth/main.conf.adi2-pi.bak ]; then
-  mv /etc/bluetooth/main.conf.adi2-pi.bak /etc/bluetooth/main.conf
+# Bluetooth device class back to what it was: only the two lines the installer added go (the file
+# may have changed since); a Class line they replaced comes back from the installer's backup
+BT_CONF=/etc/bluetooth/main.conf
+if [ -f "$BT_CONF" ] && grep -q '^# set by adi2-pi: the Pi is an audio device$' "$BT_CONF"; then
+  sed -i '/^# set by adi2-pi: the Pi is an audio device$/{N;/\nClass = 0x200414$/d}' "$BT_CONF"
+  ORIG="$(grep -m1 -E '^[#[:space:]]*Class[[:space:]]*=' "$BT_CONF.adi2-pi.bak" 2>/dev/null || true)"
+  if [ -n "$ORIG" ] && ! grep -qF -- "$ORIG" "$BT_CONF"; then sed -i "/^\[General\]/a $ORIG" "$BT_CONF"; fi
+  rm -f "$BT_CONF.adi2-pi.bak"
   systemctl restart bluetooth >/dev/null 2>&1 || true
 fi
 rm -f /etc/avahi/services/adi2-pi.service /etc/polkit-1/rules.d/50-adi2-pi.rules /usr/lib/systemd/system-shutdown/adi2-pi-ups-off
@@ -36,4 +41,4 @@ if [ "$PURGE" -eq 1 ]; then
 else
   echo "ADI-2-Pi removed. Settings kept in /var/lib/adi2-pi (use --purge to delete them)."
 fi
-echo "Node.js, avahi-daemon, PipeWire, BlueZ and the receivers (shairport-sync, gmediarender, squeezelite, snapclient; nqptp, raspotify, Roon Bridge if added) were left installed, NodeSource's apt repository stays configured – their own services are unmasked but not enabled. Paired Bluetooth devices stay paired (bluetoothctl remove … to forget them)."
+echo "Node.js, avahi-daemon, PipeWire, BlueZ and the receivers (shairport-sync, gmediarender, squeezelite, snapclient; nqptp, raspotify, Roon Bridge if added) were left installed; NodeSource's and raspotify's apt repositories stay configured, I²C stays enabled (dtparam=i2c_arm=on, /etc/modules-load.d/i2c-dev.conf) – their own services are unmasked but not enabled. Paired Bluetooth devices stay paired (bluetoothctl remove … to forget them). Desktop sessions get Bluetooth audio and the ADI-2 back at the next login."

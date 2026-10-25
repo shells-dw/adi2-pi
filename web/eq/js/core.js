@@ -599,7 +599,7 @@ export function toADI2(filters, { slot = 1, name = 'Preset', root = 'ADI-2DAC' }
     `\t<EQPreset${slot}Left>`, ...left, `\t</EQPreset${slot}Left>`,
     `\t<EQPreset${slot}Right>`, ...right, `\t</EQPreset${slot}Right>`,
     '\t<PresetNames>',
-    `\t\t<val e="EQPresetName${slot}" v="${esc(name).slice(0, 15)}"/>`,
+    `\t\t<val e="EQPresetName${slot}" v="${esc(String(name).slice(0, 15))}"/>`,
     '\t</PresetNames>',
     `</${root}>`,
     '',

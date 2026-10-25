@@ -603,5 +603,12 @@
   "{0}: USB while the Pi plays": "{0}: USB, während der Pi spielt",
   "” and play through the ADI-2 over USB – the sample rate follows what plays.": "“ und spielen über USB durch den ADI-2 – die Abtastrate folgt dem, was gerade spielt.",
   "” and play through the ADI-2.": "“ und spielen durch den ADI-2.",
-  "view only": "nur ansehen"
+  "view only": "nur ansehen",
+  "yes": "ja",
+  "no": "nein",
+  "muted": "stumm",
+  "dim": "Dim",
+  "playing": "spielt",
+  "paused": "Pause",
+  "stopped": "gestoppt"
 }

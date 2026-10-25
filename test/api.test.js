@@ -6,6 +6,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
+const net = require('net');
 const path = require('path');
 const { MockAdi } = require('../lib/mock-adi');
 const { Adi2 } = require('../lib/device');
@@ -385,6 +386,30 @@ test('WebSocket origin rules: foreign sites refused, apps and same host allowed'
       await c.wait((m) => m.t === 'hello');
       c.close();
     }
+  } finally { b.stop(); }
+});
+
+test('malformed requests: NUL in a path, invalid request targets and prototype names do not reach the unit or kill the bridge', async () => {
+  const b = await start();
+  const raw = (line) => new Promise((resolve) => {
+    const s = net.connect(b.port, '127.0.0.1', () => s.write(`${line}\r\nHost: x\r\n\r\n`));
+    let out = ''; s.on('data', (d) => { out += d; }); s.on('close', () => resolve(out)); s.on('error', () => resolve(out));
+    setTimeout(() => s.destroy(), 1500);
+  });
+  try {
+    assert.match(await raw('GET /%00 HTTP/1.1'), /^HTTP\/1.1 400/);
+    assert.match(await raw('GET //[::1 HTTP/1.1'), /^HTTP\/1.1 400/);
+    assert.match(await raw('GET //[::1 HTTP/1.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: AAAAAAAAAAAAAAAAAAAAAA==\r\nSec-WebSocket-Version: 13'), /^HTTP\/1.1 400/);
+    assert.strictEqual((await json(b.base, '/api/info')).status, 200, 'still alive');
+    const c = await ws(b.port);
+    await c.wait((m) => m.t === 'state');
+    for (const m of [{ t: 'set', ch: 'constructor', id: 'vol', value: -20 }, { t: 'set', ch: 'line', id: 'constructor', value: 5 }, { t: 'set', ch: 'line', id: '__proto__', value: 5 }]) {
+      assert.strictEqual((await c.req(m)).status, 400, JSON.stringify(m));
+    }
+    assert.strictEqual((await c.req({ t: 'settings', patch: { constructor: 1 } })).status, 400);
+    assert.strictEqual((await c.req({ t: 'loadSetup', n: 1.5 })).status, 400);
+    assert.strictEqual((await c.req({ t: 'renamePreset', n: 1 })).status, 400);
+    c.close();
   } finally { b.stop(); }
 });
 

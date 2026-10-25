@@ -50,7 +50,7 @@ class Adi2PiClient extends EventEmitter {
   }
 
   /** true when values can be read and set */
-  get usable() { return !!(this.device && this.device.connected && this.device.ready && this.device.answering !== false); }
+  get usable() { return !!(this.connected && this.device && this.device.connected && this.device.ready && this.device.answering !== false); }
 
   _connect() {
     const s = new this.WS(this.key ? `${this.url}${this.url.includes('?') ? '&' : '?'}key=${encodeURIComponent(this.key)}` : this.url);

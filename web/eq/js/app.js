@@ -172,10 +172,16 @@ function download(name, content, type = /\.(txt|csv)$/i.test(name) ? 'text/plain
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
-// ADI-2 preset names are max. 15 characters: drop the part in brackets, then the brand.
+// ADI-2 preset names are short (15 characters in ADI-2 Remote's files, 14 on the unit): drop the
+// part in brackets, then a brand of up to 3 words in front of the model, then cut.
 function presetName(name) {
   let n = name.replace(/\s*\(.*?\)\s*/g, ' ').replace(/\s+/g, ' ').trim();
-  if (n.length > 15 && n.includes(' ')) n = n.slice(n.indexOf(' ') + 1);
+  const words = n.split(' ');
+  for (let i = 1; n.length > 15 && i < words.length && i <= 3; i++) {
+    if (words[i] === '&') continue; // "Bowers & Wilkins": the brand goes as a whole
+    const rest = words.slice(i).join(' ');
+    if (rest.length <= 15 || /\d/.test(words[i])) { n = rest; break; }
+  }
   return n.slice(0, 15);
 }
 const safeName = s => s.replace(/[\\/:*?"<>|]+/g, '').trim() || 'eq';
@@ -739,6 +745,8 @@ function pngExport() {
 let debounce;
 function onSettingsChange() {
   readForm();
+  // another equalizer: the previous result's bands don't fit its export, so show nothing until the new fit is in
+  if (state.result && effective(state.opt).device !== state.result.opt.device) { state.result = null; renderAll(); }
   syncVisibility();
   clearTimeout(debounce);
   debounce = setTimeout(run, 400);
@@ -903,7 +911,7 @@ async function setupSend() {
   $('open-presets').addEventListener('click', () => {
     if (!state.filters.length) { say('Nothing to hand over yet.', 'err'); return; }
     const items = adiSetItems(state.filters, 'draft').filter(it => it.side === 'L').map(({ id, side, value }) => ({ id, side, value }));
-    const name = ($('adiName').value || (state.hp && state.hp.name) || 'EQ').slice(0, 15);
+    const name = ($('adiName').value || (state.hp && state.hp.name) || 'EQ').slice(0, 14); // the unit's own limit
     try { localStorage.setItem('adi2.eqDraft', JSON.stringify({ name, items })); } catch {}
     location.href = '/#eqpresets';
   });

@@ -10,9 +10,10 @@
 #   --no-bluetooth      remote control only: no audio service, no Bluetooth, no streaming
 #   --no-streaming      no network receivers (AirPlay, UPnP, Squeezelite, Snapcast)
 #   --with-airplay2     build AirPlay 2 (shairport-sync + nqptp from GitHub, ~10 min) instead of classic AirPlay;
+#                       an existing build is kept (it says when GitHub has newer sources)
 #                       skipped when the same version is built already. Once built, AirPlay 2 stays
 #                       when you run the installer again without this option.
-#   --rebuild-airplay2  build AirPlay 2 again even if it's up to date
+#   --rebuild-airplay2  build AirPlay 2 again from the current sources on GitHub
 #   --with-spotify      Spotify Connect: adds raspotify's apt repository (librespot)
 #   --with-roon         Roon Bridge: downloads and runs Roon's own installer
 #   --journal-ram       keep the system log in RAM only (less SD card writes; logs are lost on reboot)
@@ -43,7 +44,7 @@ UPS_MODE=auto
 SYSTEM_NODE=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --port) PORT="$2"; shift 2 ;;
+    --port) [ $# -ge 2 ] || { echo "--port needs a number" >&2; exit 2; }; PORT="$2"; shift 2 ;;
     --keep-pipewire-midi) KEEP_PW_MIDI=1; shift ;;
     --journal-ram) JOURNAL_RAM=1; shift ;;
     --no-bluetooth|--no-audio) AUDIO=0; STREAMING=0; shift ;;
@@ -56,7 +57,7 @@ while [ $# -gt 0 ]; do
     --no-ups) UPS_MODE=off; shift ;;
     --system-node) SYSTEM_NODE=1; shift ;;
     -y|--yes) ASSUME_YES=1; shift ;;
-    -h|--help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -119,7 +120,7 @@ if [ -f "$DATA/settings.json" ]; then
 else
   CUR_PORT=""
 fi
-port_user() { ss -Hltnp "sport = :$1" 2>/dev/null | grep -oE 'users:\(\("[^"]+' | head -n1 | sed 's/.*"//'; }
+port_user() { ss -Hltnp "sport = :$1" 2>/dev/null | { grep -oE 'users:\(\("[^"]+' || true; } | head -n1 | sed 's/.*"//'; }
 valid_port() { case "$1" in ''|*[!0-9]*) return 1 ;; esac; [ "$1" -ge 1 ] && [ "$1" -le 65535 ]; }
 if [ -n "$PORT" ]; then
   # chosen with --port
@@ -421,10 +422,14 @@ if [ "$STREAMING" -eq 1 ]; then
       if [ ! -f "$AP2_STAMP" ] && [ -n "$SP_HEAD" ] && [ -n "$NQ_HEAD" ] && "$AP2_BIN" -V 2>/dev/null | grep -q "^${SP_HEAD:0:7}"; then
         install -d "$(dirname "$AP2_STAMP")"; echo "nqptp=$NQ_HEAD shairport-sync=$SP_HEAD" > "$AP2_STAMP"
       fi
-      if [ -n "$SP_HEAD" ] && [ -n "$NQ_HEAD" ] && [ "$(cat "$AP2_STAMP" 2>/dev/null)" = "nqptp=$NQ_HEAD shairport-sync=$SP_HEAD" ]; then
-        AP2_NEED=0; ok "up to date ($("$AP2_BIN" -V 2>/dev/null)) – not rebuilt"
-      elif [ -z "$SP_HEAD" ] || [ -z "$NQ_HEAD" ]; then
-        AP2_NEED=0; warn "GitHub not reachable – keeping the existing AirPlay 2 build"
+      # an existing build is kept: upstream commits land every few days and a rebuild takes 10 minutes
+      AP2_NEED=0
+      if [ -z "$SP_HEAD" ] || [ -z "$NQ_HEAD" ]; then
+        warn "GitHub not reachable – keeping the existing AirPlay 2 build"
+      elif [ "$(cat "$AP2_STAMP" 2>/dev/null)" = "nqptp=$NQ_HEAD shairport-sync=$SP_HEAD" ]; then
+        ok "up to date ($("$AP2_BIN" -V 2>/dev/null)) – not rebuilt"
+      else
+        ok "kept ($("$AP2_BIN" -V 2>/dev/null)); GitHub has newer sources – --rebuild-airplay2 builds them"
       fi
     fi
   fi
@@ -434,24 +439,24 @@ if [ "$STREAMING" -eq 1 ]; then
     apt-get -o DPkg::Lock::Timeout=900 install -y -qq --no-install-recommends build-essential git autoconf automake libtool pkg-config \
       libpopt-dev libconfig-dev libasound2-dev libpulse-dev libavahi-client-dev libssl-dev libsoxr-dev \
       "$PLIST" libplist-utils libsodium-dev libavutil-dev libavcodec-dev libavformat-dev uuid-dev libgcrypt20-dev xxd >/dev/null
-    B=/var/cache/adi2-pi/build
-    rm -rf "$B"; install -d "$B"
-    git clone -q --depth 1 https://github.com/mikebrady/nqptp.git "$B/nqptp"
-    ( cd "$B/nqptp" && autoreconf -fi >/dev/null 2>&1 && ./configure --with-systemd-startup >/dev/null && make -s >/dev/null && make -s install >/dev/null ) \
+    BUILD=/var/cache/adi2-pi/build
+    rm -rf "$BUILD"; install -d "$BUILD"
+    git clone -q --depth 1 https://github.com/mikebrady/nqptp.git "$BUILD/nqptp"
+    ( cd "$BUILD/nqptp" && autoreconf -fi >/dev/null 2>&1 && ./configure --with-systemd-startup >/dev/null && make -s >/dev/null && make -s install >/dev/null ) \
       || die "building nqptp failed – see the output above, or install without --with-airplay2"
     systemctl daemon-reload
     systemctl enable nqptp >/dev/null 2>&1 || true
     systemctl restart nqptp >/dev/null 2>&1 || warn "nqptp did not start (AirPlay 2 needs it): journalctl -u nqptp"
-    git clone -q --depth 1 https://github.com/mikebrady/shairport-sync.git "$B/shairport-sync"
+    git clone -q --depth 1 https://github.com/mikebrady/shairport-sync.git "$BUILD/shairport-sync"
     # the PulseAudio option's name differs between versions (--with-pa, --with-pulseaudio)
-    ( cd "$B/shairport-sync" && autoreconf -fi >/dev/null 2>&1 && \
+    ( cd "$BUILD/shairport-sync" && autoreconf -fi >/dev/null 2>&1 && \
       PA_OPT="$(./configure --help | grep -oE -- '--with-(pulseaudio|pa)([^-a-z]|$)' | head -n1 | grep -oE -- '--with-[a-z]+' || true)" && \
       ./configure --sysconfdir=/etc --with-alsa $PA_OPT --with-soxr --with-avahi --with-ssl=openssl --with-airplay-2 >/dev/null && \
       make -s -j"$(nproc)" >/dev/null ) || die "building shairport-sync failed – see the output above, or install without --with-airplay2"
-    install -m 0755 "$B/shairport-sync/shairport-sync" "$AP2_BIN"
+    install -m 0755 "$BUILD/shairport-sync/shairport-sync" "$AP2_BIN"
     install -d "$(dirname "$AP2_STAMP")"
-    echo "nqptp=$(git -C "$B/nqptp" rev-parse HEAD | cut -c1-12) shairport-sync=$(git -C "$B/shairport-sync" rev-parse HEAD | cut -c1-12)" > "$AP2_STAMP"
-    rm -rf "$B"
+    echo "nqptp=$(git -C "$BUILD/nqptp" rev-parse HEAD | cut -c1-12) shairport-sync=$(git -C "$BUILD/shairport-sync" rev-parse HEAD | cut -c1-12)" > "$AP2_STAMP"
+    rm -rf "$BUILD"
     ok "AirPlay 2 built: $("$AP2_BIN" -V 2>/dev/null || echo ok)"
   fi
 
@@ -459,7 +464,8 @@ if [ "$STREAMING" -eq 1 ]; then
   if [ "$WITH_SPOTIFY" -eq 1 ]; then
     step "Spotify Connect (raspotify's apt repository)"
     command -v curl >/dev/null 2>&1 || apt-get -o DPkg::Lock::Timeout=900 install -y -qq --no-install-recommends curl >/dev/null
-    curl -fsSL https://dtcooper.github.io/raspotify/key.asc -o /usr/share/keyrings/raspotify-archive-keyrings.asc
+    curl -fsSL https://dtcooper.github.io/raspotify/key.asc -o /usr/share/keyrings/raspotify-archive-keyrings.asc \
+      || die "could not download raspotify's signing key – run again without --with-spotify, or later"
     chmod 0644 /usr/share/keyrings/raspotify-archive-keyrings.asc
     echo 'deb [signed-by=/usr/share/keyrings/raspotify-archive-keyrings.asc] https://dtcooper.github.io/raspotify raspotify main' > /etc/apt/sources.list.d/raspotify.list
     apt-get -o DPkg::Lock::Timeout=900 update -qq
@@ -495,7 +501,7 @@ if [ "$STREAMING" -eq 1 ]; then
 pcm.!default { type pulse server "unix:/run/adi2-pi-audio/pulse/native" }
 ctl.!default { type pulse server "unix:/run/adi2-pi-audio/pulse/native" }
 EOF2
-    RUNIT="$(systemctl list-unit-files --no-legend 2>/dev/null | awk '{print $1}' | grep -i '^roonbridge.*\.service$' | head -n1)"
+    RUNIT="$(systemctl list-unit-files --no-legend 2>/dev/null | awk '{print $1}' | { grep -i '^roonbridge.*\.service$' || true; } | head -n1)"
     RUNIT="${RUNIT:-roonbridge.service}"
     install -d "/etc/systemd/system/$RUNIT.d"
     printf '# installed by adi2-pi\n[Unit]\nAfter=adi2-pi-audio.service\n[Service]\nEnvironment=HOME=%s/roon-home\n' "$DATA" > "/etc/systemd/system/$RUNIT.d/adi2-pi.conf"

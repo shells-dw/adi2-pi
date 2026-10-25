@@ -104,7 +104,7 @@ Standard WebSocket libraries answer by themselves.
 | `access` | `access` (`full` / `read`) | the connection's access changed because the key or `viewOpen` setting changed |
 | `state` | `device`, `p {"addr.idx": value}`, `setups [9 names]`, `eqPresets [20]`, `unitStatus`, `statusInfo`, `silences`, `bluetooth`, `streaming`, `routing`, `trigger`, `automation`, `mqtt`, `ups`, `updates`, `nowplaying` | on connect, on `get` |
 | `settings` | `settings` | on connect and when settings change |
-| `p` | `p {"addr.idx": value}`, `origin` | values changed. `origin`: `device` = on the unit (knob, remote, read-back), `client` = through the bridge, `auto` = the bridge switching outputs to USB while the Pi plays, `bridge` = Loopback for Bluetooth out, `scene` / `rule` = a scene applied by a client / by an action, `sleep` = sleep timer, `start` = start volume, `stream` = volume of an AirPlay/Spotify sender, `restore` = restore from a backup, `mqtt` = MQTT command |
+| `p` | `p {"addr.idx": value}`, `origin` | values changed. `origin`: `device` = on the unit (knob, remote, read-back), `client` = through the bridge, `auto` = the bridge switching outputs to USB while the Pi plays, `bridge` = Loopback for Bluetooth out, `scene` / `rule` = a scene applied by a client / by an action, `profile` = a headphone profile applied, `sleep` = sleep timer, `start` = start volume, `stream` = volume of an AirPlay/Spotify sender, `restore` = restore from a backup, `mqtt` = MQTT command |
 | `device` | `device` | ADI-2 connected / identified / ready / gone |
 | `setups` | `setups` | setup names read from the unit |
 | `eqpresets` | `eqPresets` | the unit's 20 EQ presets changed (see below) |
@@ -419,7 +419,7 @@ Parameter changes made by the USB switching are broadcast with `origin: "auto"`.
   "limits": { "line": null, "ph12": 0, "ph34": 0 },    // max dB the bridge will set, null = none
   "riseDbPerSec": 0,                                   // limit how fast volume may rise, 0 = off
   "link": [],                                          // e.g. ["ph12","ph34"]: these volumes move together
-  "bluetooth": { "outSource": "line", "gainDb": 6 },   // what Bluetooth headphones play: line | ph34 | analog | off; their level 0…+20 dB
+  "bluetooth": { "outSource": "line", "gainDb": 6, "loop": null },   // what Bluetooth headphones play: line | ph34 | analog | off; their level 0…+20 dB; loop: Loopback values the bridge replaced for them ({ saved, set } per output) until they are put back
   "receivers": { "airplay": { "enabled": true }, "spotify": { "enabled": true }, "upnp": { "enabled": true, "uuid": "…" },
                  "squeezelite": { "enabled": false, "server": "" }, "snapcast": { "enabled": false, "server": "" } },
   "routing": { "mode": "newest", "rate": 0, "usb": { "line": true, "ph34": true }, "held": { "line": null, "ph34": null } },
@@ -566,12 +566,12 @@ Cancelling during the fade puts the volume back.
   "values": { "3.12": -200, … },          // every parameter the unit reports, except read-only ones and EQ Preset
   "setups": ["Speakers", …],               // the 9 setup names
   "eqPresets": [{ "n": 1, "name": "HD 650", "dual": false, "L": { … }, "R": { … } }],   // stored presets only
-  "settings": { "name": …, "limits": …, …, "scenes": …, "rules": …, "mqtt": { … } }      // without access key, MQTT password, port
+  "settings": { "name": …, "limits": …, …, "scenes": …, "rules": …, "mqtt": { … } }      // without access key, MQTT password, port, routing.held, bluetooth.loop
 }
 ```
 
 The content of the unit's 9 setups is not part of it: the unit doesn't send it over MIDI.
-Restore (`POST /api/restore`) sends the parts one after the other with pauses (about 10 s with
+Restore (`POST /api/restore`) sends the parts one after the other with pauses (about 15 s with
 20 presets) and reports progress as `{ state: running|done|error, step, done, total, message,
 errors }`. Unit values are only restored to the same model (409 otherwise). Values the unit
 doesn't have are skipped.

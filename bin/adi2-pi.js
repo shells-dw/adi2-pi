@@ -94,7 +94,7 @@ if (args.mock) {
   nowPlaying.handleHook({ receiver: 'spotify', event: 'playing', positionMs: 42000 });
 } else if (!args.noAudio) {
   bt = new Bluetooth({ log, alias: settings.get().name });
-  audio = new Audio({ log, dev, getSettings: () => settings.get(), env: { XDG_RUNTIME_DIR: audioRuntime } });
+  audio = new Audio({ log, dev, getSettings: () => settings.get(), settings, env: { XDG_RUNTIME_DIR: audioRuntime } });
   nowPlaying = new NowPlaying({ dataDir: args.noStreaming ? null : dataDir, bt, log });
   if (!args.noStreaming) {
     receivers = new Receivers({
