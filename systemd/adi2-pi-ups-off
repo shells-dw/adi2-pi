@@ -1,0 +1,10 @@
+#!/bin/sh
+# installed by adi2-pi: Waveshare UPS HAT (E). Runs as the last step of a power-off. If the HAT
+# has no input power at that moment (the Pi was shut down on battery), it is told to switch its
+# output off (register 0x01 = 0x55); it switches on again, and starts the Pi, when power returns.
+[ "$1" = poweroff ] || exit 0
+command -v i2cget >/dev/null 2>&1 || exit 0
+[ "$(i2cget -y 1 0x2d 0x00 b 2>/dev/null)" = "0x0a" ] || exit 0
+ST="$(i2cget -y 1 0x2d 0x02 b 2>/dev/null)" || exit 0
+[ $(( ST & 0x20 )) -eq 0 ] || exit 0
+i2cset -y 1 0x2d 0x01 0x55 >/dev/null 2>&1 || true

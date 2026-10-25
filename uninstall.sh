@@ -19,7 +19,7 @@ if [ -f /etc/bluetooth/main.conf.adi2-pi.bak ]; then
   mv /etc/bluetooth/main.conf.adi2-pi.bak /etc/bluetooth/main.conf
   systemctl restart bluetooth >/dev/null 2>&1 || true
 fi
-rm -f /etc/avahi/services/adi2-pi.service /etc/polkit-1/rules.d/50-adi2-pi.rules
+rm -f /etc/avahi/services/adi2-pi.service /etc/polkit-1/rules.d/50-adi2-pi.rules /usr/lib/systemd/system-shutdown/adi2-pi-ups-off
 systemctl reload avahi-daemon >/dev/null 2>&1 || true
 # give PipeWire its MIDI bridge back
 rm -f /etc/wireplumber/main.lua.d/51-adi2-pi-no-midi.lua /etc/wireplumber/wireplumber.conf.d/51-adi2-pi-no-midi.conf
@@ -28,7 +28,7 @@ if [ -f /etc/systemd/journald.conf.d/50-adi2-pi-volatile.conf ]; then
   systemctl restart systemd-journald || true
 fi
 systemctl daemon-reload
-rm -rf /opt/adi2-pi
+rm -rf /opt/adi2-pi /usr/local/share/adi2-pi /var/cache/adi2-pi
 if [ "$PURGE" -eq 1 ]; then
   rm -rf /var/lib/adi2-pi
   userdel adi2pi >/dev/null 2>&1 || true
@@ -36,4 +36,4 @@ if [ "$PURGE" -eq 1 ]; then
 else
   echo "ADI-2-Pi removed. Settings kept in /var/lib/adi2-pi (use --purge to delete them)."
 fi
-echo "Node.js, avahi-daemon, PipeWire, BlueZ and the receivers (shairport-sync, gmediarender, squeezelite, snapclient; nqptp, raspotify, Roon Bridge if added) were left installed – their own services are unmasked but not enabled. Paired Bluetooth devices stay paired (bluetoothctl remove … to forget them)."
+echo "Node.js, avahi-daemon, PipeWire, BlueZ and the receivers (shairport-sync, gmediarender, squeezelite, snapclient; nqptp, raspotify, Roon Bridge if added) were left installed, NodeSource's apt repository stays configured – their own services are unmasked but not enabled. Paired Bluetooth devices stay paired (bluetoothctl remove … to forget them)."

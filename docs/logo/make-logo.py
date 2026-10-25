@@ -1,38 +1,61 @@
-"""ADI-2-Pi logo: a volume knob drawn as a pie with a slice taken out. Writes SVGs; PNGs are rendered separately."""
+"""ADI-2-Pi logo: a volume ring drawn as a pie with one slice taken out. Writes the SVGs; PNGs are
+rendered from them (render.js)."""
 import math
-CY, OR, BG = '#3fc1d9', '#f0a23b', '#16191d'
-def pt(cx,cy,r,a): t=math.radians(a); return (cx+r*math.cos(t), cy+r*math.sin(t))
-def mark(id, ox=0, oy=0, gap=(-66,-14), pointer=-128):
-    cx,cy,r=62,66,50
-    a0,a1=gap
-    x0,y0=pt(cx,cy,r,a1); x1,y1=pt(cx,cy,r,a0)
-    body=f"M{cx} {cy} L{x0:.2f} {y0:.2f} A{r} {r} 0 1 1 {x1:.2f} {y1:.2f} Z"
-    w0,w1=pt(cx,cy,r,a0),pt(cx,cy,r,a1)
-    piece=f"M{cx} {cy} L{w0[0]:.2f} {w0[1]:.2f} A{r} {r} 0 0 1 {w1[0]:.2f} {w1[1]:.2f} Z"
-    mid=math.radians((a0+a1)/2); dx,dy=8*math.cos(mid),8*math.sin(mid)
-    ticks=''
-    for a in range(135,136+270,27):
-        aa=((a+180)%360)-180
-        if a0-6<=aa<=a1+6: continue
-        p,q=pt(cx,cy,39,a),pt(cx,cy,45.5,a)
-        ticks+=f'<line x1="{p[0]:.1f}" y1="{p[1]:.1f}" x2="{q[0]:.1f}" y2="{q[1]:.1f}" stroke="#000" stroke-width="3.4" stroke-linecap="round"/>'
-    p1,p2=pt(cx,cy,9,pointer),pt(cx,cy,23,pointer)
+
+CY, OR, BG, FACE, DIM = '#3fc1d9', '#f0a23b', '#16191d', '#262c33', '#2b6672'
+S = 128                      # canvas
+CX = CY_ = 64
+R_OUT, R_IN = 54, 33         # the ring
+GAP = (-78, -22)             # the missing slice, degrees (0 = right, clockwise positive)
+PUSH = 7                     # how far the slice sits away from the ring
+SCALE_START = 135            # where the knob's scale begins (bottom left)
+POINTER = -60                # knob pointer angle: the value arc runs from SCALE_START to here
+
+
+def pt(cx, cy, r, a):
+    t = math.radians(a)
+    return cx + r * math.cos(t), cy + r * math.sin(t)
+
+
+def annulus(cx, cy, r1, r2, a0, a1):
+    """Ring sector from a0 to a1 (clockwise, degrees), as a path."""
+    large = 1 if (a1 - a0) % 360 > 180 else 0
+    o0, o1 = pt(cx, cy, r1, a0), pt(cx, cy, r1, a1)
+    i0, i1 = pt(cx, cy, r2, a0), pt(cx, cy, r2, a1)
+    return (f"M{o0[0]:.2f} {o0[1]:.2f} A{r1} {r1} 0 {large} 1 {o1[0]:.2f} {o1[1]:.2f} "
+            f"L{i1[0]:.2f} {i1[1]:.2f} A{r2} {r2} 0 {large} 0 {i0[0]:.2f} {i0[1]:.2f} Z")
+
+
+def mark(ox=0, oy=0, face=FACE):
+    a0, a1 = GAP
+    ring = annulus(CX, CY_, R_OUT, R_IN, a1, a0 + 360)          # the track (the pie without its slice)
+    value = annulus(CX, CY_, R_OUT, R_IN, SCALE_START, POINTER + 360)   # how far the knob is turned
+    piece = annulus(CX, CY_, R_OUT, R_IN, a0, a1)
+    mid = math.radians((a0 + a1) / 2)
+    dx, dy = PUSH * math.cos(mid), PUSH * math.sin(mid)
+    p1, p2 = pt(CX, CY_, R_IN - 23, POINTER), pt(CX, CY_, R_IN - 8, POINTER)
     return f'''<g transform="translate({ox} {oy})">
-  <mask id="{id}" maskUnits="userSpaceOnUse" x="0" y="0" width="128" height="128"><rect width="128" height="128" fill="#fff"/>
-    <circle cx="{cx}" cy="{cy}" r="30" fill="none" stroke="#000" stroke-width="5.5"/>
-    <line x1="{p1[0]:.1f}" y1="{p1[1]:.1f}" x2="{p2[0]:.1f}" y2="{p2[1]:.1f}" stroke="#000" stroke-width="7" stroke-linecap="round"/>{ticks}
-  </mask>
-  <path d="{body}" fill="{CY}" mask="url(#{id})"/>
+  <path d="{ring}" fill="{DIM}"/>
+  <path d="{value}" fill="{CY}"/>
   <path d="{piece}" fill="{OR}" transform="translate({dx:.2f} {dy:.2f})"/>
+  <circle cx="{CX}" cy="{CY_}" r="{R_IN - 3}" fill="{face}"/>
+  <line x1="{p1[0]:.2f}" y1="{p1[1]:.2f}" x2="{p2[0]:.2f}" y2="{p2[1]:.2f}" stroke="{CY}" stroke-width="7" stroke-linecap="round"/>
 </g>'''
-def svg(w,h,body,vb=None): return f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{vb or f"0 0 {w} {h}"}" width="{w}" height="{h}">\n{body}\n</svg>\n'
-def lockup(id, text_c, sub_c):
-    return svg(600,140, f'''<g transform="translate(6 6)">{mark(id,1,-2)}</g>
-<text x="150" y="92" font-family="Inter, 'Segoe UI', system-ui, sans-serif" font-size="64" font-weight="700" letter-spacing="-1" fill="{text_c}">ADI-2-<tspan fill="{CY}">Pi</tspan></text>
-<text x="153" y="122" font-family="Inter, 'Segoe UI', system-ui, sans-serif" font-size="17" font-weight="500" letter-spacing=".5" fill="{sub_c}">Raspberry Pi bridge for RME ADI-2</text>''')
-if __name__=='__main__':
-    open('adi2-pi-mark.svg','w').write(svg(128,128,mark('m',1,-2)))
-    open('adi2-pi-icon.svg','w').write(svg(128,128,f'<rect width="128" height="128" rx="28" fill="{BG}"/>'+mark('i',1,-2)))
-    open('adi2-pi-maskable.svg','w').write(svg(128,128,f'<rect width="128" height="128" fill="{BG}"/><g transform="translate(16 16) scale(.75)">'+mark('k',1,-2)+'</g>'))
-    open('adi2-pi-wordmark-dark.svg','w').write(lockup('wd','#e7ebef','#8d98a4'))
-    open('adi2-pi-wordmark-light.svg','w').write(lockup('wl','#1b2127','#5f6b77'))
+
+
+def svg(w, h, body, vb=None):
+    return f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{vb or f"0 0 {w} {h}"}" width="{w}" height="{h}">\n{body}\n</svg>\n'
+
+
+def lockup(text_c, sub_c, face):
+    return svg(600, 140, f'''<g transform="translate(6 6)">{mark(0, 0, face)}</g>
+<text x="150" y="90" font-family="Inter, 'Segoe UI', system-ui, sans-serif" font-size="62" font-weight="700" letter-spacing="-1.5" fill="{text_c}">ADI-2-<tspan fill="{CY}">Pi</tspan></text>
+<text x="153" y="120" font-family="Inter, 'Segoe UI', system-ui, sans-serif" font-size="17" font-weight="500" letter-spacing=".4" fill="{sub_c}">Remote and audio bridge for RME ADI-2</text>''')
+
+
+if __name__ == '__main__':
+    open('adi2-pi-mark.svg', 'w').write(svg(S, S, mark()))
+    open('adi2-pi-icon.svg', 'w').write(svg(S, S, f'<rect width="{S}" height="{S}" rx="28" fill="{BG}"/>' + mark()))
+    open('adi2-pi-maskable.svg', 'w').write(svg(S, S, f'<rect width="{S}" height="{S}" fill="{BG}"/><g transform="translate(16 16) scale(.75)">' + mark() + '</g>'))
+    open('adi2-pi-wordmark-dark.svg', 'w').write(lockup('#e7ebef', '#8d98a4', FACE))
+    open('adi2-pi-wordmark-light.svg', 'w').write(lockup('#1b2127', '#5f6b77', '#dde3e8'))

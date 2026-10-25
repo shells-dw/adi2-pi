@@ -4,7 +4,7 @@
  * WebSocket (Node.js 22+), or a WebSocket class passed in, e.g.
  * `new Adi2PiClient({ url, WebSocket: require('ws') })`.
  *
- *   const c = new Adi2PiClient({ url: 'ws://adi2-pi.local/ws' });
+ *   const c = new Adi2PiClient({ url: 'ws://adi2-pi.local/ws', key: '…' });   // key: only if one is set
  *   c.on('ready', () => c.set('ph34', 'vol', { delta: -1 }));
  *   c.on('param', (key, value, origin) => …);          // "addr.idx", protocol integer
  *   c.get('ph34', 'vol')                                // display value (dB …) or undefined
@@ -12,22 +12,27 @@
  *
  * Keeps a copy of all values (state + 'p' broadcasts), reconnects by itself (1 s … 15 s),
  * answers requests by rid and rejects them with err.status (400 bad request, 409 unit not able to execute it now).
+ * A missing or wrong access key: 'unauthorized' event, no reconnect until start() again – unless the
+ * bridge lets everyone read (access.viewOpen): then the connection stays, c.access is 'read'
+ * ('access' event when it changes) and set() rejects with status 401.
  */
 const { EventEmitter } = require('events');
 
 const API = 1;
 
 class Adi2PiClient extends EventEmitter {
-  constructor({ url, WebSocket: WS = globalThis.WebSocket, timeoutMs = 5000 } = {}) {
+  constructor({ url, key = '', WebSocket: WS = globalThis.WebSocket, timeoutMs = 5000 } = {}) {
     super();
     if (!url) throw new Error('url needed, e.g. ws://adi2-pi.local/ws');
     if (!WS) throw new Error('no WebSocket class: pass one, e.g. require("ws")');
     this.url = url;
+    this.key = key;
     this.WS = WS;
     this.timeoutMs = timeoutMs;
     this.p = new Map();          // "addr.idx" → protocol integer
     this.device = null;          // { connected, ready, answering, model, … }
-    this.bridge = null;          // { name, version, host }
+    this.bridge = null;          // { name, version, host, auth, viewOpen }
+    this.access = null;          // 'full' | 'read' (no valid key, reads only)
     this.schema = null;          // from the first 'state' – fetched once over HTTP
     this.settings = null;
     this.waiting = new Map();
@@ -48,7 +53,7 @@ class Adi2PiClient extends EventEmitter {
   get usable() { return !!(this.device && this.device.connected && this.device.ready && this.device.answering !== false); }
 
   _connect() {
-    const s = new this.WS(this.url);
+    const s = new this.WS(this.key ? `${this.url}${this.url.includes('?') ? '&' : '?'}key=${encodeURIComponent(this.key)}` : this.url);
     this.sock = s;
     const on = (ev, fn) => (s.addEventListener ? s.addEventListener(ev, fn) : s.on(ev, fn));
     on('open', () => { this.retry = 1000; });
@@ -58,7 +63,9 @@ class Adi2PiClient extends EventEmitter {
       try { m = JSON.parse(String(data)); } catch { return; }
       this._onMessage(m);
     });
-    on('close', () => {
+    on('close', (e) => {
+      const code = e && typeof e === 'object' ? e.code : e;
+      if (code === 4401) { this.stopped = true; this.emit('unauthorized'); }
       for (const w of this.waiting.values()) { clearTimeout(w.timer); w.reject(Object.assign(new Error('connection closed'), { status: 503 })); }
       this.waiting.clear();
       const was = this.connected;
@@ -85,9 +92,14 @@ class Adi2PiClient extends EventEmitter {
       case 'hello':
         if (m.api !== API) this.emit('warning', `bridge speaks API ${m.api}, this client ${API}`);
         this.bridge = m.bridge;
+        this.access = m.access || 'full';
         this.device = m.device;
         this.connected = true;
         this.emit('connected', m);
+        break;
+      case 'access':
+        this.access = m.access;
+        this.emit('access', m.access);
         break;
       case 'state':
         this.p = new Map(Object.entries(m.p));
@@ -140,7 +152,7 @@ class Adi2PiClient extends EventEmitter {
   /** GET /api/schema once (same host as the WebSocket). */
   async loadSchema(fetchFn = globalThis.fetch) {
     const httpUrl = this.url.replace(/^ws/, 'http').replace(/\/ws$/, '/api/schema');
-    const r = await fetchFn(httpUrl);
+    const r = await fetchFn(httpUrl, this.key ? { headers: { 'X-ADI2PI-Key': this.key } } : undefined);
     if (!r.ok) throw new Error(`schema: HTTP ${r.status}`);
     this.schema = await r.json();
     return this.schema;

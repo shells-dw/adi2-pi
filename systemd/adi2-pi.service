@@ -30,8 +30,9 @@ RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 # /dev/snd is needed for the ADI-2's MIDI port
 DevicePolicy=closed
 DeviceAllow=char-alsa rw
-# /dev/gpiochip* for the ADI-2 trigger on GPIO3 (optional)
+# /dev/gpiochip* for the ADI-2 trigger (optional), /dev/i2c-* for a UPS HAT (optional)
 DeviceAllow=char-gpiochip rw
+DeviceAllow=char-i2c rw
 
 [Install]
 WantedBy=multi-user.target
