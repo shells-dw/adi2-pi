@@ -71,8 +71,8 @@ in a later run.
 | `--port N` | HTTP/WebSocket port. Default 80; if 80 is in use, the installer asks for another port (`-y`: first free port from 8080). |
 | `--no-bluetooth` | Remote control only: no audio service, no Bluetooth, no streaming. |
 | `--no-streaming` | No network receivers. |
-| `--with-airplay2` | Builds shairport-sync with AirPlay 2 and nqptp from source (github.com/mikebrady), about 10 minutes on a Pi 4. Skipped if the installed build matches the current sources. An existing AirPlay 2 build stays in use when the option is omitted. |
-| `--rebuild-airplay2` | Rebuilds AirPlay 2 unconditionally. |
+| `--with-airplay2` | Builds shairport-sync with AirPlay 2 and nqptp from source (github.com/mikebrady), about 10 minutes on a Pi 4. An existing AirPlay 2 build is kept, with or without the option; the installer says when GitHub has newer sources. |
+| `--rebuild-airplay2` | Builds AirPlay 2 again from the current sources on GitHub. |
 | `--with-spotify` | Spotify Connect: adds the raspotify apt repository and installs librespot. |
 | `--with-roon` | Roon Bridge: runs Roon's installer. |
 | `--keep-pipewire-midi` | Leaves the MIDI bridge of the desktop session's PipeWire enabled (see [MIDI port](#midi-port)). |
@@ -376,7 +376,9 @@ download server.
 
 `/var/lib/adi2-pi/settings.json` (written when a bridge setting changes; holds scenes, actions,
 the access key's hash and the MQTT password), downloaded headphone
-data in `/var/lib/adi2-pi/eq`, and the audio service's state in `/var/lib/adi2-pi/audio-state`.
+data in `/var/lib/adi2-pi/eq`, the audio service's state in `/var/lib/adi2-pi/audio-state`,
+the AirPlay metadata pipe `/var/lib/adi2-pi/shairport-sync-metadata`, and with `--with-roon`
+Roon Bridge's ALSA configuration in `/var/lib/adi2-pi/roon-home`.
 Unit settings are not stored on the Pi.
 
 ## Troubleshooting
@@ -424,7 +426,7 @@ No npm dependencies, no build step. Node.js 18 or later; the installer sets up N
 
 ```sh
 npm run mock    # bridge with a simulated ADI-2, Bluetooth, audio and receivers on http://localhost:8080
-npm test        # unit, API and integration tests
+npm test        # unit, API and integration tests (Node.js 20.10 or later)
 ```
 
 Integration tests run against a fake BlueZ on a private D-Bus (python3-dbus, dbus-daemon), a

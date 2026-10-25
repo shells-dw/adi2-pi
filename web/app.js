@@ -63,10 +63,16 @@
   const model = () => S.device.model || 'pro';
   const key = (a, i) => `${a}.${i}`;
 
+  let subScope = null;     // while set, sub() records its subscriptions here so a rebuild can drop them
   function sub(k, fn) {
     if (!subs.has(k)) subs.set(k, new Set());
     subs.get(k).add(fn);
+    if (subScope) subScope.push([k, fn]);
     fn(S.p.get(k));
+  }
+  function unsubAll(list) {
+    for (const [k, fn] of list) { const set = subs.get(k); if (set) { set.delete(fn); if (!set.size) subs.delete(k); } }
+    list.length = 0;
   }
   function notify(k) {
     const set = subs.get(k);
@@ -159,8 +165,9 @@
     ws.onclose = (e) => {
       S.online = false;
       renderConn();
-      // access key needed or changed: ask; the dialog reloads the page
-      if (e.code === 4401 && window.ADI2KEY) { window.ADI2KEY.ask(window.ADI2KEY.get() ? tr('The access key has changed.') : null); return; }
+      // access key needed or changed: ask; the dialog reloads the page with the key, or, dismissed,
+      // leaves the page to keep trying (the bridge may have dropped the key meanwhile)
+      if (e.code === 4401 && window.ADI2KEY) { window.ADI2KEY.ask(window.ADI2KEY.get() ? tr('The access key has changed.') : null); setTimeout(connect, 5000); return; }
       if (e.code === 4429) toast(tr('Too many wrong access keys – wait a minute'));
       setTimeout(connect, retry);
       retry = Math.min(retry * 2, 5000);
@@ -327,7 +334,9 @@
     b.hidden = !banner;
     b.textContent = banner;
     // controls can't reach the unit: show it instead of letting clicks go nowhere
-    $('#main').classList.toggle('silent', !!(S.online && S.device.connected && S.device.answering === false && !['bridge', 'state', 'bluetooth', 'streaming', 'routing', 'debug'].includes(S.tab)));
+    const unitSilent = S.online && S.device.connected && S.device.answering === false && !['bridge', 'state', 'bluetooth', 'streaming', 'routing', 'debug'].includes(S.tab);
+    // ADI-2-Pi itself unreachable: nothing on the page can be changed (System keeps language and theme)
+    $('#main').classList.toggle('silent', unitSilent || (!S.online && S.tab !== 'bridge'));
   }
 
   // ------------------------------------------------------------------ sending values (throttled per key)
@@ -807,8 +816,15 @@
       });
       return inp;
     }
+    const bandSubs = [];
     function buildBands() {
       const s = side();
+      unsubAll(bandSubs); // the previous side's inputs are gone
+      subScope = bandSubs;
+      try { buildSide(s); } finally { subScope = null; }
+      redraw();
+    }
+    function buildSide(s) {
       bandsEl.replaceChildren(...bands.map((b) => h('div', { class: 'band' },
         h('div', { class: 'bh' }, h('span', null, tr('Band {0}', [b])), h('i', { style: { background: BAND_COLORS[b - 1] } })),
         b === 1 || b === 5 ? selectBox(ch, `b${b}type`, s) : h('select', { disabled: true }, h('option', { text: tr('Peak') })),
@@ -818,11 +834,10 @@
       )));
       // B/T on/off and "Load B/T with preset" belong to the output, not to a preset
       const btIds = isDraft(ch) ? ['bass', 'bassf', 'bassq', 'treble', 'trebf', 'trebq'] : ['bten', 'bass', 'bassf', 'bassq', 'treble', 'trebf', 'trebq', 'btload'];
-      btEl.replaceChildren(...btIds.map((id) => paramRow(ch, id, s)));
+      btEl.replaceChildren(...btIds.map((id) => paramRow(ch, id, isDraft(ch) ? 'L' : s))); // a preset's B/T is not per side
       if (presetSelect) presetEl.replaceChildren(h('span', { class: 'hint', style: { margin: 0 }, text: tr('Preset') }), selectBox(ch, 'eqpreset', s));
       // keep curve in sync with every EQ value on this side
       for (const p of S.schema.params.eq) { const r = resolve(ch, p.id, s); sub(key(r.addr, r.idx), redraw); }
-      redraw();
     }
 
     const sideSeg = h('div', { class: 'seg', role: 'group', 'aria-label': tr('Channel') });
@@ -899,7 +914,7 @@
     if (available(SEC.device.basic)) addDev(tr('Basic Mode'), () => nm('device', 'basic'), null, [dk('basic')]);
     addDev(tr('Clock Source'), () => nm('device', 'clock'), null, [dk('clock')]);
     addDev(tr('Sample rate'), () => nm('device', 'srate'), null, [dk('srate')]);
-    addDev(tr('Balanced phones'), () => (S.statusInfo ? (S.statusInfo.balanced ? 'yes' : 'no') : '–'));
+    addDev(tr('Balanced phones'), () => (S.statusInfo ? (S.statusInfo.balanced ? tr('yes') : tr('no')) : '–'));
     // digital input signal (decoded for the ADI-2 Pro / Pro EX only)
     if (S.device.model === 'pro') {
       const sig = (v) => (v === true ? tr('signal') : v === false ? tr('no signal') : '–');
@@ -909,7 +924,7 @@
       const updHint = () => { spdifHint.replaceChildren(tr('SPDIF input'), h('small', null, tr('SPDIF In: {0}', [nm('device', 'spdifin')]))); };
       sub(dk('spdifin'), updHint);
     }
-    addDev(tr('DSD decode'), () => (S.statusInfo ? (S.statusInfo.dsd ? 'on' : 'off') : '–'));
+    addDev(tr('DSD decode'), () => (S.statusInfo ? (S.statusInfo.dsd ? tr('on') : tr('off')) : '–'));
 
     // outputs
     const tbody = h('tbody');
@@ -920,8 +935,8 @@
       const upd = () => {
         const muted = v(c.key, 'mute'), dim = v(c.key, 'dim');
         const st = [];
-        if (muted) st.push('muted');
-        if (dim) st.push('dim');
+        if (muted) st.push(tr('muted'));
+        if (dim) st.push(tr('dim'));
         // only what the unit reports: the Pro EX sends no Mute/Dim/Source for Phones 1/2
         cells.state.textContent = st.join(', ') || (muted === undefined && dim === undefined ? '–' : tr('not muted'));
         cells.state.className = muted ? 'bad' : '';
@@ -1584,7 +1599,7 @@
       const line = (e) => {
         const pos = e.position !== null && e.positionAt && e.state === 'playing' ? e.position + Math.round((Date.now() - e.positionAt) / 1000) : e.position;
         const mmss = (t) => `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
-        return `${NP_SOURCE[e.source]}${e.sender ? ` · ${e.sender}` : ''} · ${e.state === 'playing' ? 'playing' : e.state}${e.duration ? ` · ${pos !== null ? `${mmss(Math.min(pos, e.duration))} / ` : ''}${mmss(e.duration)}` : ''}`;
+        return `${NP_SOURCE[e.source]}${e.sender ? ` · ${e.sender}` : ''} · ${{ playing: tr('playing'), paused: tr('paused'), stopped: tr('stopped') }[e.state] || e.state}${e.duration ? ` · ${pos !== null ? `${mmss(Math.min(pos, e.duration))} / ` : ''}${mmss(e.duration)}` : ''}`;
       };
       const cover = cur.source === 'airplay' && cur.cover ? h('img', { class: 'np-cover', src: cur.cover, alt: '' }) : h('div', { class: 'np-cover none' }, '♪');
       body.replaceChildren(
@@ -1881,13 +1896,13 @@
       const k = key(res.addr, res.idx);
       const vCell = h('td', { class: 'v' });
       const dCell = h('td');
-      const rowEl = h('tr', null, h('td', { class: 'k' }, k), h('td', null, `${r.ch ? chName(r.ch) : 'Device'}${r.side ? ` EQ ${r.side}` : ''} · ${r.p.label}`), vCell, dCell);
+      const rowEl = h('tr', null, h('td', { class: 'k' }, k), h('td', null, `${r.ch ? chName(r.ch) : tr('Device')}${r.side ? ` EQ ${r.side}` : ''} · ${r.p.label}`), vCell, dCell);
       rowEl.dataset.s = `${k} ${rowEl.textContent}`.toLowerCase();
       sub(k, (v) => {
         vCell.textContent = v === undefined ? '–' : String(v);
         if (v === undefined) { dCell.textContent = ''; return; }
         if (r.p.type === 'select') dCell.textContent = (names(r.p, r.ch) || [])[v] ?? `#${v}`;
-        else if (r.p.type === 'toggle') dCell.textContent = v ? 'on' : 'off';
+        else if (r.p.type === 'toggle') dCell.textContent = v ? tr('on') : tr('off');
         else dCell.textContent = `${fmt(toDisp(r.p, v), r.p.decimals || 0)} ${r.p.unit || ''}`;
       });
       tbody.append(rowEl);
@@ -1917,8 +1932,11 @@
     const list = h('div');
     const tm = (t) => new Date(t).toTimeString().slice(0, 8);
     let last = '';
+    let ticks = 0;
     function load() {
-      if (!document.body.contains(list) && last) { clearInterval(timer); return; }
+      // the first call runs before the card is in the page; afterwards a card that was replaced stops polling
+      if (ticks++ && !document.body.contains(list)) { clearInterval(timer); return; }
+      if (!S.online) return;
       send({ t: 'sentlog' }).then((m) => {
         const j = JSON.stringify(m.sent);
         if (j === last) return;
@@ -2502,6 +2520,7 @@
     store.set('tab', tab);
     renderTabs();
     render();
+    renderConn(); // the greyed-out state depends on the tab
     window.scrollTo({ top: 0 });
   }
   function renderIfTab(t) { if (S.tab === t) render(); }

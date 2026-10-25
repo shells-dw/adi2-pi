@@ -510,7 +510,7 @@ class Helper:
                 fn(m, done, fail)
             else:
                 fn(m, done)
-        except (dbus.exceptions.DBusException, ValueError) as e:
+        except Exception as e:  # noqa: BLE001 – a bad argument must not take the stdin watch down
             fail(e)
 
     def _stdin(self, fd, cond):
@@ -531,7 +531,13 @@ class Helper:
             except ValueError:
                 out({"ok": False, "error": "invalid JSON"})
                 continue
-            self.handle(m)
+            if not isinstance(m, dict):
+                out({"ok": False, "error": "a command must be a JSON object"})
+                continue
+            try:
+                self.handle(m)
+            except Exception as e:  # noqa: BLE001
+                out({"id": m.get("id"), "ok": False, "error": str(e)})
         return True
 
     def quit(self):
