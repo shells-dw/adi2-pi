@@ -874,7 +874,7 @@
   const trSubs = new Set();
 
   // ---- State: like ADI-2 Remote's status window
-  /** Output level at 0 dBFS in dBu, where RME's manuals give it (Line: Ref Level; Pro phones). */
+  /** Output level at 0 dBFS in dBu, where RME's manuals give it (Line: Ref Level; phones of the Pro and 2/4 Pro models). */
   function refDbu(c) {
     const ref = S.p.get(key(c.addr, SEC.output.ref.idx));
     if (ref === undefined) return null;
@@ -883,9 +883,11 @@
       const m = n && n.match(/([+-]?\d+)\s*dBu/);
       return m ? Number(m[1]) : null;
     }
-    if (model() !== 'pro') return null;
     const balanced = S.statusInfo && S.statusInfo.balanced;
-    return (ref ? 22 : 7) + (balanced ? 6 : 0); // ADI-2 Pro EX manual: Lo-Power +7 dBu, Hi-Power +22 dBu, balanced +6 dB
+    // ADI-2 Pro EX manual: Lo-Power +7 dBu, Hi-Power +22 dBu; ADI-2/4 Pro SE/EX: IEM +1, Lo-Power +7, Hi-Power +19 dBu; balanced +6 dB
+    const levels = { pro: [7, 22], se: [1, 7, 19] }[model()];
+    if (!levels || levels[ref] === undefined) return null;
+    return levels[ref] + (balanced ? 6 : 0);
   }
 
   function pageState() {

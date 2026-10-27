@@ -10,7 +10,7 @@
  "modelNames": {
   "dac": "ADI-2 DAC",
   "pro": "ADI-2 Pro / Pro EX",
-  "se": "ADI-2/4 Pro SE"
+  "se": "ADI-2/4 Pro SE / Pro EX"
  },
  "setups": 9,
  "eqDefaults": {
@@ -210,7 +210,8 @@
        "+24 dBu"
       ],
       "se": [
-       "+4 dBu",
+       "+1 dBu",
+       "+7 dBu",
        "+13 dBu",
        "+19 dBu",
        "+24 dBu"

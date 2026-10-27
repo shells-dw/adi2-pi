@@ -64,6 +64,8 @@ test('catalog resolves names both ways', () => {
   assert.strictEqual(cat.fromDisplay(cat.sections.eq.b3f, 3453), 3450);
   assert.strictEqual(cat.valueNames(cat.sections.output.ref, 'pro', cat.channelByKey.ph12)[1], 'Hi-Power');
   assert.strictEqual(cat.valueNames(cat.sections.output.ref, 'pro', cat.channelByKey.line)[0], '+4 dBu');
+  // ADI-2/4 Pro SE / EX line outputs: five levels (manuals and specs), not the Pro's four
+  assert.deepStrictEqual(cat.valueNames(cat.sections.output.ref, 'se', cat.channelByKey.line), ['+1 dBu', '+7 dBu', '+13 dBu', '+19 dBu', '+24 dBu']);
 });
 
 test('status message: RME example (SE) and an ADI-2 Pro EX capture', () => {
