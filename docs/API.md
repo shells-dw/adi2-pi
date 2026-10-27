@@ -38,7 +38,7 @@ The unit's device IDs map to models: 113 = `dac`, 114 = `pro` (also Pro EX), 115
 {
   "api": 1, "schema": "1",
   "models": { "113": "dac", "114": "pro", "115": "se" },          // device id → model key
-  "modelNames": { "dac": "ADI-2 DAC", "pro": "ADI-2 Pro / Pro EX", "se": "ADI-2/4 Pro SE" },
+  "modelNames": { "dac": "ADI-2 DAC", "pro": "ADI-2 Pro / Pro EX", "se": "ADI-2/4 Pro SE / Pro EX" },
   "channels": [
     { "key": "line", "name": "Line Out", "short": "LINE", "addr": 3, "eq": 4, "eqR": 5, "kind": "output", "line": true },
     { "key": "ph12", "name": "Phones 1/2", "dacName": "Phones", "short": "PH 1/2", "addr": 6, "eq": 7, "eqR": 8, "kind": "output" },

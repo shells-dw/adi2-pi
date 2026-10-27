@@ -1,7 +1,7 @@
 <img src="docs/logo/wordmark-light.png" alt="ADI-2-Pi" width="420">
 
 Network remote and audio bridge for RME ADI-2 series converters (ADI-2 DAC, ADI-2 Pro / Pro EX,
-ADI-2/4 Pro SE). Runs on a Raspberry Pi connected to the unit by USB.
+ADI-2/4 Pro SE / Pro EX). Runs on a Raspberry Pi connected to the unit by USB.
 
 - **Web interface:** all output, input and device settings, parametric EQ with a draggable curve,
   bass/treble, loudness, setups, the unit's 20 EQ presets (edit, store, load).
@@ -410,7 +410,7 @@ bluetoothctl show                            # Bluetooth adapter
 RME "MIDI-Protocol for ADI-2 DAC, ADI-2 Pro and ADI-2/4 Pro SE" v0.2, extended with behaviour
 observed on an ADI-2 Pro EX:
 
-- Device IDs 0x71 (DAC), 0x72 (Pro, Pro EX), 0x73 (2/4 Pro SE).
+- Device IDs 0x71 (DAC), 0x72 (Pro, Pro EX), 0x73 (2/4 Pro SE; the 2/4 Pro EX is expected on the same ID, as the Pro EX kept the Pro's).
 - EQ preset store: data on addresses 13/14, then the flags word as a separate message at
   address 13 **index 2** (the unit sends it at index 1 and ignores it there on receive). B/T
   Enable (13.20) and Load B/T (13.27) must not be part of a store: the unit switches MIDI Control
@@ -419,6 +419,11 @@ observed on an ADI-2 Pro EX:
 - Device parameter 62 (not in v0.2): Load Volume with Setup (0 = disabled, 1 = with Setup).
 - The ADI-2 Pro EX does not report Phones 1/2 Mute, Dim, Width, Lock Volume, Source, Mono, DA
   Filter, De-Emphasis, Loopback, DC Protection, or input Bass/Treble.
+- ADI-2/4 Pro EX (untested): its manual (v2.0) lists values the 2/4 Pro SE doesn't have and v0.2
+  doesn't number – input Ref Level −5 … −35 dBu (digital gain), RIAA 0 dB, DC Filter ADC,
+  Bal. Impedance 94 k / 47 k, Phones 3/4 Source ADAT 3/4, Remap Keys RIAA Mode + / − and RIAA
+  Mono B. Values the bridge has no name for are shown as `#<number>`; Debug → *Settings ADI-2-Pi can’t
+  name yet* lists them and the parameters the bridge doesn't know.
 
 ## Development
 
