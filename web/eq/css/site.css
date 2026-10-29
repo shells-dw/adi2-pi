@@ -99,3 +99,16 @@ code, pre { font-family: var(--font-mono); font-size: 11.5px; }
   .site-top { padding-left: 10px; padding-right: 10px; }
   .site-tabs { padding-left: 6px; padding-right: 6px; }
 }
+
+/* connection status and setups in the header (same as the main page) */
+.site-sub { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.site-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+.site-dot.ok { background: #3fbf6f; }
+.site-dot.warn { background: #e0a83a; }
+.site-dot.bad { background: #e5533d; }
+.site-setup { max-width: 46vw; min-height: 28px; padding: 2px 8px; font-size: 12px; }
+/* the title keeps room; longer figure labels (other languages) wrap instead */
+@media (min-width: 701px) {
+  .summary { grid-template-columns: minmax(260px, 1fr) minmax(0, max-content); }
+  .figures { justify-content: flex-end; row-gap: 8px; }
+}

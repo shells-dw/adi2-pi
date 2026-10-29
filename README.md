@@ -85,6 +85,8 @@ in a later run.
 | `--system-node` | Node.js from Raspberry Pi OS instead of NodeSource; removes NodeSource's repository if present. Without the option, a later run switches to Node.js 24 again. |
 | `--auto-updates` | Sets System → *System updates* to *install*: all updates 5 minutes after each start of the Pi, then every 24 hours (see [System updates](#system-updates)). |
 | `--no-auto-updates` | Sets it to *off* (updates only when asked for). |
+| `--same-options` | The options of the previous run (saved in `/etc/adi2-pi/install-options`) plus the ones given. |
+| `--offline` | Doesn't use the package sources; everything needed must be installed. Chosen by itself when they can't be reached. |
 | `-y`, `--yes` | No questions. |
 
 Uninstall: `sudo /opt/adi2-pi/uninstall.sh` (`--purge` also removes settings and the service user).
@@ -298,12 +300,27 @@ is switched off and on, or with the HAT's switch.
 
 ### Updates
 
-System → *Updates*. *Check for updates daily* (off by default) asks GitHub for the latest release
-of ADI-2-Pi once a day; *Check now* asks once. A newer version is shown on the System tab with a
-link to its release page, and with MQTT as a Home Assistant update entity. Nothing is downloaded
-or installed. To update, download the release from
-[github.com/shells-dw/adi2-pi/releases](https://github.com/shells-dw/adi2-pi/releases), unpack
-it and run `sudo ./install.sh` with the options used before; settings are kept.
+System → *ADI-2-Pi updates*. *Check for updates daily* (off by default) asks GitHub for the latest
+release of ADI-2-Pi once a day; *Check now* asks once. A newer version is shown on the System tab
+with a link to its release page, and with MQTT as a Home Assistant update entity. The check
+downloads and installs nothing.
+
+To update, download the release from
+[github.com/shells-dw/adi2-pi/releases](https://github.com/shells-dw/adi2-pi/releases), then either:
+
+- **Install from a file** (System → *ADI-2-Pi updates*): choose `adi2-pi-<version>.tar.gz` and
+  `adi2-pi-<version>.tar.gz.sig` together. The Pi doesn't go online for this. It accepts only a
+  release whose signature matches the release key of the installed version, shows the version,
+  and installs it after *Install*: a root service (`adi2-pi-self-update.service`) checks the
+  signature again on its own copy and runs the release's `install.sh -y --same-options`.
+  ADI-2-Pi restarts during the installation and the page reloads with the new version. Output:
+  `/var/log/adi2-pi/self-update.log`.
+- or unpack it on the Pi and run `sudo ./install.sh` (add `--same-options` for the options of
+  the previous run).
+
+Settings are kept either way. Without internet access the installer uses the installed packages
+(`--offline`, also chosen by itself when the package sources can't be reached); it stops if a
+package the new version needs is missing.
 
 ### System updates
 
@@ -538,6 +555,8 @@ lib/streamvol.js        sender volume (AirPlay, Spotify Connect) → ADI-2 volum
 lib/backup.js           backup file, restore
 lib/mqtt.js, mqtt-bridge.js  MQTT client, entities, Home Assistant discovery
 lib/updates.js          update check (GitHub releases)
+lib/selfupdate.js       install from a file; lib/release-verify.js checks release signatures
+lib/osupdates.js        system updates (apt) through root services
 lib/nowplaying.js       now playing: AirPlay metadata pipe, librespot events, Bluetooth AVRCP
 lib/usb-audio.js        sample rate via the USB playback device (without audio service)
 lib/eq-data.js          headphone data: bundled files, update on request
@@ -546,9 +565,25 @@ clients/                reference API client
 audio/                  audio service start script, PipeWire/WirePlumber configuration
 systemd/                service units, mDNS service definition
 web/                    web interface; web/lang/ languages; web/eq/ Headphone EQ Generator and its data
-tools/                  i18n-keys.js: lists the page's translatable texts
+tools/                  i18n-keys.js: lists the page's translatable texts; release.js: signed release files
 test/                   tests
 ```
+
+### Releases
+
+*Install from a file* accepts releases signed with the key whose public part is
+`lib/release-key.pub` in the installed version.
+
+```sh
+node tools/release.js key     # once: signing key in ~/.config/adi2-pi/release-key.pem (keep a copy),
+                              # public key to lib/release-key.pub – commit it
+node tools/release.js build   # dist/adi2-pi-<version>.tar.gz, .zip and .tar.gz.sig from HEAD
+```
+
+Attach all three files to the GitHub release. With a lost key, installations need one manual
+update to a release with the new public key. Works on Linux, macOS and Windows (Node.js 18+, git;
+on Windows the key is in `%USERPROFILE%\.config\adi2-pi\`). The archives always get Unix line
+endings (`.gitattributes`), whatever `core.autocrlf` says.
 
 ## Support
 

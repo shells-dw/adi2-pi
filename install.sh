@@ -26,6 +26,10 @@
 #   --auto-updates      install all system updates (apt full-upgrade) 5 minutes after each start of
 #                       the Pi, then every 24 hours – same as System → System updates → Install automatically
 #   --no-auto-updates   switch that off again (updates only when asked for on the System tab)
+#   --same-options      the options of the previous run (saved in /etc/adi2-pi/install-options),
+#                       plus any given here
+#   --offline           don't use the package sources: everything needed must be installed already
+#                       (also chosen by itself when the package sources can't be reached)
 #   -y, --yes           don't ask anything (scripted installs): a taken port 80 becomes 8080
 set -euo pipefail
 
@@ -48,6 +52,16 @@ WITH_ROON=0
 UPS_MODE=auto
 SYSTEM_NODE=0
 AUTO_UPD=""   # on | off | empty: leave as it is
+OFFLINE=0
+OPTS_FILE=/etc/adi2-pi/install-options
+# --same-options: the saved options first, so options given now win
+for a in "$@"; do
+  if [ "$a" = --same-options ] && [ -f "$OPTS_FILE" ]; then
+    # shellcheck disable=SC2046
+    set -- $(grep -E '^--[a-z0-9-]+$' "$OPTS_FILE" || true) "$@"
+    break
+  fi
+done
 while [ $# -gt 0 ]; do
   case "$1" in
     --port) [ $# -ge 2 ] || { echo "--port needs a number" >&2; exit 2; }; PORT="$2"; shift 2 ;;
@@ -64,8 +78,10 @@ while [ $# -gt 0 ]; do
     --system-node) SYSTEM_NODE=1; shift ;;
     --auto-updates) AUTO_UPD=on; shift ;;
     --no-auto-updates) AUTO_UPD=off; shift ;;
+    --same-options) shift ;;
+    --offline) OFFLINE=1; shift ;;
     -y|--yes) ASSUME_YES=1; shift ;;
-    -h|--help) sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -180,8 +196,16 @@ if [ "$AUDIO" -eq 1 ] && [ "$STREAMING" -eq 1 ]; then
   PKGS="$PKGS pipewire-pulse libasound2-plugins"
   RX_PKGS="shairport-sync gmediarender gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-pulseaudio gstreamer1.0-libav squeezelite snapclient"
 fi
-say "updating the package lists…"
-apt-get -o DPkg::Lock::Timeout=900 update -qq
+if [ "$OFFLINE" -eq 0 ]; then
+  say "updating the package lists…"
+  APT_OUT="$(apt-get -o DPkg::Lock::Timeout=900 update -qq 2>&1)" || true
+  if grep -qE 'Temporary failure resolving|Could not resolve|Network is unreachable|Could not connect' <<<"$APT_OUT"; then
+    warn "the package sources can't be reached – continuing with the installed packages (as with --offline)"
+    OFFLINE=1
+  fi
+fi
+# offline: what is missing can't be installed
+missing_pkgs() { local p; for p in "$@"; do dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q 'install ok installed' || printf '%s ' "$p"; done; }
 
 # Node.js: 24 LTS from NodeSource's apt repository (amd64/arm64 only), or Raspberry Pi OS's own
 # with --system-node. Same file names as NodeSource's setup script, so either replaces the other.
@@ -190,12 +214,19 @@ NS_LIST=/etc/apt/sources.list.d/nodesource.sources
 NS_PIN=/etc/apt/preferences.d/nodejs
 NODE_FROM=nodesource
 [ "$SYSTEM_NODE" -eq 1 ] && NODE_FROM=system
+if [ "$OFFLINE" -eq 1 ]; then
+  command -v node >/dev/null 2>&1 || die "Node.js is not installed and the package sources can't be reached"
+  [ -f "$NS_LIST" ] && NODE_FROM=nodesource || NODE_FROM=system
+  NODE_FROM_KEPT=1
+fi
 case "$ARCH" in
   amd64|arm64) ;;
   *) [ "$NODE_FROM" = nodesource ] && warn "NodeSource has Node.js 24 for 64-bit systems only – using Raspberry Pi OS's Node.js"; NODE_FROM=system ;;
 esac
 ns_remove() { rm -f "$NS_LIST" "$NS_PIN" "$NS_KEY" /usr/share/keyrings/nodesource.asc; }
-if [ "$NODE_FROM" = nodesource ]; then
+if [ "${NODE_FROM_KEPT:-0}" -eq 1 ]; then
+  say "Node.js $(node -v) kept (offline)"
+elif [ "$NODE_FROM" = nodesource ]; then
   say "Node.js 24 LTS: NodeSource's apt repository"
   command -v curl >/dev/null 2>&1 || apt-get -o DPkg::Lock::Timeout=900 install -y -qq --no-install-recommends curl >/dev/null
   command -v gpg >/dev/null 2>&1 || apt-get -o DPkg::Lock::Timeout=900 install -y -qq --no-install-recommends gnupg >/dev/null
@@ -222,7 +253,9 @@ if [ "$NODE_FROM" = nodesource ]; then
     NODE_FROM=system
   fi
 fi
-if [ "$NODE_FROM" = nodesource ]; then
+if [ "${NODE_FROM_KEPT:-0}" -eq 1 ]; then
+  :
+elif [ "$NODE_FROM" = nodesource ]; then
   apt-get -o DPkg::Lock::Timeout=900 install -y -qq nodejs >/dev/null || die "installing Node.js 24 failed – run again with --system-node to use Raspberry Pi OS's Node.js"
 else
   if [ -f "$NS_LIST" ]; then
@@ -236,9 +269,17 @@ else
 fi
 
 say "${D}$PKGS${N}"
-apt-get -o DPkg::Lock::Timeout=900 install -y -qq --no-install-recommends $PKGS >/dev/null
+if [ "$OFFLINE" -eq 1 ]; then
+  # shellcheck disable=SC2086
+  MISSING="$(missing_pkgs $PKGS)"
+  [ -z "$MISSING" ] || die "offline, and these packages are missing: $MISSING– connect the Pi to the internet and run the installer again"
+  # shellcheck disable=SC2086
+  [ -z "${RX_PKGS:-}" ] || { MISSING="$(missing_pkgs $RX_PKGS)"; [ -z "$MISSING" ] || warn "offline – not installed: $MISSING(the receivers that need them stay off)"; }
+else
+  apt-get -o DPkg::Lock::Timeout=900 install -y -qq --no-install-recommends $PKGS >/dev/null
+fi
 # receivers: together if possible, else one by one, so one missing package only costs that receiver
-if [ -n "${RX_PKGS:-}" ]; then
+if [ "$OFFLINE" -eq 0 ] && [ -n "${RX_PKGS:-}" ]; then
   say "streaming receivers: ${D}$RX_PKGS${N}"
   if ! apt-get -o DPkg::Lock::Timeout=900 install -y -qq --no-install-recommends $RX_PKGS >/dev/null 2>&1; then
     for p in $RX_PKGS; do
@@ -247,7 +288,7 @@ if [ -n "${RX_PKGS:-}" ]; then
     done
   fi
 fi
-if [ "$AUDIO" -eq 1 ] && ! command -v dbus-run-session >/dev/null 2>&1; then
+if [ "$AUDIO" -eq 1 ] && [ "$OFFLINE" -eq 0 ] && ! command -v dbus-run-session >/dev/null 2>&1; then
   apt-get -o DPkg::Lock::Timeout=900 install -y -qq --no-install-recommends dbus-daemon >/dev/null 2>&1 || apt-get -o DPkg::Lock::Timeout=900 install -y -qq --no-install-recommends dbus-bin >/dev/null 2>&1 || true
   command -v dbus-run-session >/dev/null 2>&1 || die "dbus-run-session is missing (package dbus-daemon) – needed for the audio service"
 fi
@@ -277,12 +318,13 @@ polkit.addRule(function (action, subject) {
       action.id == "org.freedesktop.login1.power-off-multiple-sessions" ||
       action.id == "org.freedesktop.login1.power-off-ignore-inhibit")) return polkit.Result.YES;
 });
-// System → System updates: restart the Pi, and start the two update services – nothing else
+// System → System updates and ADI-2-Pi updates: restart the Pi, and start the three update services – nothing else
 polkit.addRule(function (action, subject) {
   if (subject.user != "adi2pi") return;
   if (action.id == "org.freedesktop.login1.reboot" || action.id == "org.freedesktop.login1.reboot-multiple-sessions") return polkit.Result.YES;
   if (action.id == "org.freedesktop.systemd1.manage-units" && action.lookup("verb") == "start" &&
-      (action.lookup("unit") == "adi2-pi-os-check.service" || action.lookup("unit") == "adi2-pi-os-upgrade.service")) return polkit.Result.YES;
+      (action.lookup("unit") == "adi2-pi-os-check.service" || action.lookup("unit") == "adi2-pi-os-upgrade.service" ||
+       action.lookup("unit") == "adi2-pi-self-update.service")) return polkit.Result.YES;
 });
 EOF3
 fi
@@ -297,12 +339,14 @@ cp -r "$SRC/bin" "$SRC/lib" "$SRC/web" "$SRC/audio" "$DEST/"
 cp "$SRC/package.json" "$SRC/README.md" "$DEST/"
 [ -d "$SRC/docs" ] && cp -r "$SRC/docs" "$DEST/"
 cp "$SRC/uninstall.sh" "$DEST/"
-chmod 0755 "$DEST/bin/adi2-pi.js" "$DEST/bin/adi2-pi-hook.js" "$DEST/uninstall.sh" "$DEST/audio/run-audio.sh" "$DEST/lib/bt-helper.py" "$DEST/lib/os-upgrade.sh"
+chmod 0755 "$DEST/bin/adi2-pi.js" "$DEST/bin/adi2-pi-hook.js" "$DEST/uninstall.sh" "$DEST/audio/run-audio.sh" "$DEST/lib/bt-helper.py" "$DEST/lib/os-upgrade.sh" "$DEST/lib/self-update.sh"
 chown -R root:root "$DEST"
 # System → System updates: two root services ADI-2-Pi may start (polkit rule above); their output in /var/log/adi2-pi
 install -d -m 0755 /var/log/adi2-pi
 install -m 0644 "$SRC/systemd/adi2-pi-os-check.service" /etc/systemd/system/adi2-pi-os-check.service
 install -m 0644 "$SRC/systemd/adi2-pi-os-upgrade.service" /etc/systemd/system/adi2-pi-os-upgrade.service
+# ADI-2-Pi updates → Install from a file: a root service for a signed release ADI-2-Pi stages
+install -m 0644 "$SRC/systemd/adi2-pi-self-update.service" /etc/systemd/system/adi2-pi-self-update.service
 
 # ---------------------------------------------------------------- settings (port)
 install -d -m 0750 -o "$SVC_USER" -g "$SVC_USER" "$DATA"
@@ -442,7 +486,7 @@ if [ "$STREAMING" -eq 1 ]; then
   if [ "$WITH_AP2" -eq 1 ]; then
     step "AirPlay 2 (shairport-sync + nqptp from github.com/mikebrady)"
     # the newest commits on GitHub vs. what was built last time
-    command -v git >/dev/null 2>&1 || apt-get -o DPkg::Lock::Timeout=900 install -y -qq --no-install-recommends git >/dev/null
+    [ "$OFFLINE" -eq 1 ] || command -v git >/dev/null 2>&1 || apt-get -o DPkg::Lock::Timeout=900 install -y -qq --no-install-recommends git >/dev/null
     NQ_HEAD="$(git ls-remote https://github.com/mikebrady/nqptp.git HEAD 2>/dev/null | cut -c1-12 || true)"
     SP_HEAD="$(git ls-remote https://github.com/mikebrady/shairport-sync.git HEAD 2>/dev/null | cut -c1-12 || true)"
     AP2_NEED=1
@@ -462,6 +506,10 @@ if [ "$STREAMING" -eq 1 ]; then
         ok "kept ($("$AP2_BIN" -V 2>/dev/null)); GitHub has newer sources – --rebuild-airplay2 builds them"
       fi
     fi
+  fi
+  if [ "$WITH_AP2" -eq 1 ] && [ "$AP2_NEED" -eq 1 ] && [ "$OFFLINE" -eq 1 ]; then
+    warn "offline – AirPlay 2 can't be built now (it needs the sources from GitHub); run the installer again with internet"
+    AP2_NEED=0
   fi
   if [ "$WITH_AP2" -eq 1 ] && [ "$AP2_NEED" -eq 1 ]; then
     say "building – this takes a while (about 10 minutes on a Pi 4)…"
@@ -491,7 +539,10 @@ if [ "$STREAMING" -eq 1 ]; then
   fi
 
   # ---- Spotify Connect (opt-in): librespot from raspotify's apt repository
-  if [ "$WITH_SPOTIFY" -eq 1 ]; then
+  if [ "$WITH_SPOTIFY" -eq 1 ] && [ "$OFFLINE" -eq 1 ]; then
+    step "Spotify Connect (raspotify's apt repository)"
+    if command -v librespot >/dev/null 2>&1; then mask_unit raspotify; ok "librespot kept (offline)"; else warn "offline – raspotify can't be installed now"; fi
+  elif [ "$WITH_SPOTIFY" -eq 1 ]; then
     step "Spotify Connect (raspotify's apt repository)"
     command -v curl >/dev/null 2>&1 || apt-get -o DPkg::Lock::Timeout=900 install -y -qq --no-install-recommends curl >/dev/null
     curl -fsSL https://dtcooper.github.io/raspotify/key.asc -o /usr/share/keyrings/raspotify-archive-keyrings.asc \
@@ -511,7 +562,9 @@ if [ "$STREAMING" -eq 1 ]; then
     case "$(uname -m)" in
       aarch64) RARCH=linuxarmv8 ;; armv7l) RARCH=linuxarmv7hf ;; x86_64) RARCH=linuxx64 ;; *) die "Roon Bridge isn't available for $(uname -m)" ;;
     esac
-    if [ ! -d /opt/RoonBridge ]; then
+    if [ ! -d /opt/RoonBridge ] && [ "$OFFLINE" -eq 1 ]; then
+      warn "offline – Roon Bridge can't be downloaded now"
+    elif [ ! -d /opt/RoonBridge ]; then
       say "downloading Roon's installer (download.roonlabs.com)…"
       # Roon's installer needs curl and bzip2 (its download is a .tar.bz2)
       apt-get -o DPkg::Lock::Timeout=900 install -y -qq --no-install-recommends curl bzip2 >/dev/null
@@ -619,6 +672,21 @@ if ! systemctl is-active --quiet "$APP"; then
   journalctl -u "$APP" -n 20 --no-pager >&2 || true
   die "the bridge did not start – see the log above"
 fi
+
+# the options of this run, for --same-options (also used by Install from a file)
+opt() { if [ "$1" -eq 1 ]; then echo "$2"; fi; }
+install -d -m 0755 "$(dirname "$OPTS_FILE")"
+{
+  echo "# options of the last install.sh run – read by install.sh --same-options"
+  opt $((1 - AUDIO)) --no-bluetooth
+  opt $(( AUDIO == 1 && STREAMING == 0 && PA_KEPT == 0 ? 1 : 0 )) --no-streaming
+  opt $(( WITH_SPOTIFY == 1 || $([ -f /etc/apt/sources.list.d/raspotify.list ] && echo 1 || echo 0) == 1 ? 1 : 0 )) --with-spotify
+  opt $(( WITH_ROON == 1 || $([ -d /opt/RoonBridge ] && echo 1 || echo 0) == 1 ? 1 : 0 )) --with-roon
+  opt $(( JOURNAL_RAM == 1 || $([ -f /etc/systemd/journald.conf.d/50-adi2-pi-volatile.conf ] && echo 1 || echo 0) == 1 ? 1 : 0 )) --journal-ram
+  opt "$KEEP_PW_MIDI" --keep-pipewire-midi
+  opt "$SYSTEM_NODE" --system-node
+  opt "$([ "$UPS_MODE" = off ] && echo 1 || echo 0)" --no-ups
+} > "$OPTS_FILE"
 
 HOST="$(hostname)"
 URL="http://$HOST.local"; [ "$PORT" != 80 ] && URL="$URL:$PORT"

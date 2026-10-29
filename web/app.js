@@ -201,6 +201,8 @@
 
     switch (m.t) {
       case 'hello':
+        // another ADI-2-Pi version after a reconnect (an update was installed): load its page
+        if (S.bridge && S.bridge.version && m.bridge && m.bridge.version && m.bridge.version !== S.bridge.version) { location.reload(); return; }
         S.bridge = m.bridge;
         S.access = m.access || 'full';
         setDevice(m.device);
@@ -228,6 +230,7 @@
         if (m.ups) { S.ups = m.ups; for (const fn of upsSubs) fn(); }
         if (m.updates) { S.updates = m.updates; for (const fn of updSubs) fn(); }
         if (m.osUpdates) { S.osUpdates = m.osUpdates; for (const fn of updSubs) fn(); }
+        if (m.selfUpdate) { S.selfUpdate = m.selfUpdate; for (const fn of updSubs) fn(); }
         if (m.nowplaying) S.nowplaying = m.nowplaying;
         for (const fn of npSubs) fn();
         for (const fn of autoSubs) fn();
@@ -278,6 +281,7 @@
       case 'ups': S.ups = m.ups; for (const fn of upsSubs) fn(); break;
       case 'updates': S.updates = m.updates; for (const fn of updSubs) fn(); break;
       case 'osUpdates': S.osUpdates = m.osUpdates; for (const fn of updSubs) fn(); break;
+      case 'selfUpdate': S.selfUpdate = m.selfUpdate; for (const fn of updSubs) fn(); break;
       case 'nowplaying': S.nowplaying = m.nowplaying; for (const fn of npSubs) fn(); break;
       case 'mqtt': S.mqtt = m.mqtt; if (S.tab === 'bridge' && !$('#main').contains(document.activeElement)) render(); break;
       case 'midi': monitorLine(m); break;
@@ -2664,9 +2668,60 @@
       const now = h('button', { class: 'btn', disabled: u.checking, onclick: () => act({ now: true }) }, u.checking ? tr('Checking…') : tr('Check now'));
       body.replaceChildren(...rows,
         h('div', { class: 'row' }, h('div', { class: 'lab' }, tr('Check once'), h('small', null, tr('one request to GitHub, also when the daily check is off'))), h('div', { class: 'ctl' }, now)),
+        ...fileInstallRows(),
         h('p', { class: 'hint help' }, tr('To update: download the release from '), h('a', { href: u.releasesUrl, target: '_blank', rel: 'noopener noreferrer' }, tr('GitHub')),
-          tr(', unpack it on the Pi and run sudo ./install.sh with the options used before. Settings are kept.')));
+          tr(' and install it here with “Install from a file” – or unpack it on the Pi and run sudo ./install.sh. Settings are kept.')),
+        h('p', { class: 'hint help' }, tr('Install from a file only accepts releases with a valid signature (the .sig file next to the archive on the release page). The Pi checks it once more before installing, then runs the release’s installer with the options of the last installation. ADI-2-Pi restarts during the installation.')));
     }
+    /** Install from a file: upload a release (.tar.gz) and its signature (.sig), then install it. */
+    let uploading = false;
+    let uploadErr = '';
+    function fileInstallRows() {
+      const su = S.selfUpdate;
+      if (!su) return [];
+      const row = (label, value, hint, cls = '') => h('div', { class: 'row' }, h('div', { class: 'lab' }, label, hint ? h('small', null, hint) : null), h('div', { class: `ctl ${cls}` }, value));
+      if (!su.available) return [row(tr('Install from a file'), tr('not available'), su.reason, 'muted')];
+      const pick = h('input', { type: 'file', multiple: true, accept: '.gz,.tgz,.sig', hidden: true });
+      pick.addEventListener('change', async () => {
+        const files = [...pick.files];
+        pick.value = '';
+        const sigF = files.find((f) => /\.sig$/i.test(f.name));
+        const arch = files.find((f) => /\.(tar\.gz|tgz)$/i.test(f.name));
+        uploadErr = !arch ? tr('Choose the release archive (.tar.gz) together with its signature (.tar.gz.sig).')
+          : !sigF ? tr('The signature file (.tar.gz.sig) is missing – choose both files at once.') : '';
+        if (uploadErr) { draw(); return; }
+        uploading = true; draw();
+        try {
+          const sig = ((await sigF.text()).trim().split(/\s+/).pop()) || '';
+          const r = await fetch('/api/selfupdate/upload', { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', 'X-ADI2PI-Signature': sig }, body: arch });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+          S.selfUpdate = j;
+        } catch (e) { uploadErr = e.message; }
+        uploading = false; draw();
+      });
+      const out = [];
+      const busy = su.state === 'installing';
+      out.push(row(tr('Install from a file'), [pick, h('button', { class: 'btn', disabled: uploading || busy, onclick: () => pick.click() }, uploading ? tr('Checking…') : tr('Choose files…'))],
+        tr('the release archive and its signature, without the Pi going online')));
+      if (uploadErr) out.push(h('p', { class: 'hint bad' }, uploadErr));
+      if (busy) out.push(row(tr('Installing'), tr('ADI-2-Pi {0} – the page reconnects when it is done', [su.staged ? su.staged.version : '']), null, 'warn'));
+      else if (su.staged) {
+        const st = su.staged;
+        const note = st.newer ? null : st.same ? tr('the same version as installed') : tr('older than the installed {0}', [su.current]);
+        out.push(row(tr('Ready to install'), [
+          h('span', null, tr('ADI-2-Pi {0}', [st.version]), ' '),
+          h('button', { class: 'btn primary', onclick: () => { if (confirm(tr('Install ADI-2-Pi {0} now? ADI-2-Pi restarts during the installation.', [st.version]))) act2({ action: 'install' }); } }, tr('Install')),
+          h('button', { class: 'btn', style: { marginLeft: '6px' }, onclick: () => act2({ action: 'discard' }) }, tr('Discard')),
+        ], note ? tr('signature valid · {0}', [note]) : tr('signature valid'), note ? 'warn' : ''));
+      }
+      if (!busy && su.lastRun && !su.lastRun.ok) {
+        out.push(row(tr('Last installation'), tr('failed'), su.lastRun.at ? new Date(su.lastRun.at).toLocaleString() : null, 'bad'));
+        if (su.lastRun.log && su.lastRun.log.length) out.push(h('details', { class: 'osu' }, h('summary', null, tr('Output of the last run')), h('pre', { class: 'osu-log' }, su.lastRun.log.join('\n'))));
+      }
+      return out;
+    }
+    const act2 = (msg) => send({ t: 'selfUpdate', ...msg }).then((m) => { S.selfUpdate = m.selfUpdate; draw(); }).catch(() => {});
     updSubs.add(draw);
     draw();
     return card(tr('ADI-2-Pi updates'), body);
@@ -3014,7 +3069,7 @@
     const t = [{ id: 'overview', label: tr('Overview') }];
     for (const c of outputs()) t.push({ id: c.key, label: chName(c) });
     if (available(CH.in)) t.push({ id: 'in', label: tr('Input') });
-    t.push({ id: 'eqpresets', label: tr('EQ Presets') }, { id: 'device', label: tr('Device') }, { id: 'routing', label: tr('Pi Playback') }, { id: 'bluetooth', label: tr('Bluetooth') }, { id: 'streaming', label: tr('Streaming') }, { id: 'automation', label: tr('Scenes & Actions') }, { id: 'eq', label: tr('Headphone EQ'), href: '/eq/' }, { id: 'bridge', label: tr('System') });
+    t.push(...window.ADI2_TABS(tr)); // web/tabs.js, also used by the Headphone EQ page
     if (debugOn()) t.push({ id: 'debug', label: tr('Debug') });
     return t;
   }

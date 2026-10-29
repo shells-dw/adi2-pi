@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 'use strict';
 /**
- * Lists the texts the web page can translate: every tr('…') in web/app.js and web/auth.js, the
- * static texts of web/index.html, and the labels, notes, group headings, channel and value names
+ * Lists the texts the web page can translate: every tr('…') in web/app.js, web/auth.js and web/tabs.js, the
+ * static texts of web/index.html, the Headphone EQ page (web/eq/index.html, web/eq/js/app.js), and the labels, notes, group headings, channel and value names
  * of lib/schema.json. Writes web/lang/template.json ("text": "") and reports keys a language file
  * lacks or has in excess:   node tools/i18n-keys.js [lang-code …]
  */
@@ -13,11 +13,23 @@ const root = path.join(__dirname, '..');
 const keys = new Set();
 const add = (k) => { if (k && /[A-Za-z]/.test(k)) keys.add(k); };
 
-for (const f of ['web/app.js', 'web/auth.js']) {
+for (const f of ['web/app.js', 'web/auth.js', 'web/tabs.js']) {
   const src = fs.readFileSync(path.join(root, f), 'utf8');
   const re = /\btr\('((?:[^'\\]|\\.)*)'/g;
   let m;
   while ((m = re.exec(src))) add(m[1].replace(/\\'/g, "'").replace(/\\n/g, '\n').replace(/\\\\/g, '\\'));
+}
+// the Headphone EQ page: tr('…') in its script, its static texts (web/eq/js/app.js translatePage)
+{
+  const src = fs.readFileSync(path.join(root, 'web/eq/js/app.js'), 'utf8');
+  for (const m of src.matchAll(/\btr\('((?:[^'\\]|\\.)*)'/g)) add(m[1].replace(/\\'/g, "'"));
+  let page = fs.readFileSync(path.join(root, 'web/eq/index.html'), 'utf8');
+  page = page.slice(page.indexOf('<!--APP-->'), page.indexOf('<!--/APP-->'))
+    .replace(/<(script|style|pre|code|svg)\b[\s\S]*?<\/\1>/g, '')
+    .replace(/<select id="(app|target)"[\s\S]*?<\/select>/g, '')
+    .replace(/<span class="site-title"[^>]*>[^<]*<\/span>/g, '');
+  for (const m of page.matchAll(/>([^<>]+)</g)) add(m[1].replace(/\s+/g, ' ').trim());
+  for (const m of page.matchAll(/(?:aria-label|title|placeholder)="([^"]+)"/g)) add(m[1]);
 }
 const html = fs.readFileSync(path.join(root, 'web/index.html'), 'utf8');
 for (const m of html.matchAll(/(?:aria-label|title)="([^"]+)"/g)) add(m[1]);

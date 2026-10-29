@@ -26,6 +26,7 @@ const { MqttBridge } = require('../lib/mqtt-bridge');
 const { Ups } = require('../lib/ups');
 const { Updates } = require('../lib/updates');
 const { OsUpdates } = require('../lib/osupdates');
+const { SelfUpdate } = require('../lib/selfupdate');
 const { NowPlaying } = require('../lib/nowplaying');
 const { version } = require('../package.json');
 
@@ -124,6 +125,10 @@ const ups = args.mock
 // update check (off by default): GitHub's latest release, notification only
 const updates = new Updates({ settings, version, log });
 const mqtt = new MqttBridge({ dev, settings, log, automation, version, ups, updates, nowPlaying });
+// install from a file: a signed release uploaded through the web page; simulated with --mock
+const selfUpdate = args.mock
+  ? new SelfUpdate({ dataDir: dataDir || require('os').tmpdir(), version, log, installed: true, run: async () => ({ code: 0, out: 'ActiveState=inactive\n', err: '' }) })
+  : new SelfUpdate({ dataDir, version, log });
 // system updates (apt) through two root services; simulated with --mock
 const osUpdates = args.mock
   ? new OsUpdates({ settings, dataDir, log, installed: true, uptime: 30, run: mockAptRun(), kernel: () => null, restartSelf: () => log.info('os updates: (simulated) restart for the new Node.js') })
@@ -140,7 +145,7 @@ const trigger = args.mock
   : new Trigger({ getSettings: () => settings.get(), getDevice: () => dev.info(), log,
     packagesBusy: () => packagesBusy() || osUpdates.busy(), updatesPending: () => osUpdates.pendingAfterStart() });
 settings.on('change', () => trigger.apply());
-const { server, wss } = createServer({ dev, settings, version, log, allowOrigins: args.allowOrigins, dataDir, bt, audio, receivers, autoSource, trigger, automation, streamVolume, restore, mqtt, ups, updates, osUpdates, nowPlaying, inputPriority });
+const { server, wss } = createServer({ dev, settings, version, log, allowOrigins: args.allowOrigins, dataDir, bt, audio, receivers, autoSource, trigger, automation, streamVolume, restore, mqtt, ups, updates, osUpdates, selfUpdate, nowPlaying, inputPriority });
 
 server.on('error', (e) => {
   if (e.code === 'EADDRINUSE') log.warn(`port ${port} is already in use – set another one with --port or in settings.json`);
@@ -163,6 +168,7 @@ server.listen(port, args.host, () => {
   ups.start();
   updates.start();
   osUpdates.start();
+  selfUpdate.start().catch(() => {});
   if (nowPlaying) nowPlaying.start();
   mqtt.start();
 });
@@ -231,6 +237,7 @@ function shutdown() {
   ups.stop();
   updates.stop();
   osUpdates.stop();
+  selfUpdate.stop();
   if (nowPlaying) nowPlaying.stop();
   mqtt.stop();
   wss.close();

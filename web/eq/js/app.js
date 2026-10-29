@@ -1,5 +1,8 @@
 import * as C from './core.js';
 
+// page language (web/i18n.js); English without it
+const tr = (k, v) => (globalThis.I18N ? globalThis.I18N.tr(k, v) : k);
+
 // Data
 
 const EMBED = globalThis.HPEQ_EMBED || null;
@@ -8,7 +11,7 @@ const csvCache = new Map();
 
 async function loadIndex() {
   if (EMBED) return EMBED.index;
-  const msg = 'Could not load the headphone list from the ADI-2-Pi.';
+  const msg = tr('Could not load the headphone list from the ADI-2-Pi.');
   const r = await fetch('/api/eq/index', { cache: 'no-cache' }).catch(() => { throw new Error(msg); });
   if (!r.ok) throw new Error(msg);
   return r.json();
@@ -21,9 +24,9 @@ async function loadCsv(path) {
   else {
     // measurements are stored on the Pi (shipped, or updated on request)
     const r = await fetch(`/api/eq/file?path=${encodeURIComponent(path)}`)
-      .catch(() => { throw new Error('Cannot reach the ADI-2-Pi.'); });
+      .catch(() => { throw new Error(tr('Cannot reach the ADI-2-Pi.')); });
     if (!r.ok) {
-      let msg = `Could not load ${path.split('/').pop()}.`;
+      let msg = tr('Could not load {0}.', [path.split('/').pop()]);
       try { msg = (await r.json()).error || msg; } catch {}
       throw new Error(msg);
     }
@@ -39,8 +42,8 @@ async function loadCsv(path) {
 const STORE_KEY = 'hpeq.v1';
 const OPT_KEYS = Object.keys(C.DEFAULTS);
 const APPS = { // equalizer targets
-  adi2: { device: 'adi2', out: 'adi', hint: 'Gain ±12 dB, 0.5 dB steps. Q 0.5–9.9 (bands 4/5: 0.5–5.0, from 200 Hz).' },
-  totalmix: { device: 'totalmix', out: 'totalmix', hint: 'Band 1 low shelf, bands 2–8 peak, band 9 high shelf. ±20 dB, Q 0.4–9.9.' },
+  adi2: { device: 'adi2', out: 'adi', hint: () => tr('Gain ±12 dB, 0.5 dB steps. Q 0.5–9.9 (bands 4/5: 0.5–5.0, from 200 Hz).') },
+  totalmix: { device: 'totalmix', out: 'totalmix', hint: () => tr('Band 1 low shelf, bands 2–8 peak, band 9 high shelf. ±20 dB, Q 0.4–9.9.') },
 };
 const COMMON_OUT = ['table', 'png', 'csv'];
 
@@ -145,7 +148,7 @@ function flash(btn, text) {
 async function copyText(text, btn, fallbackEl) {
   // the clipboard API needs https or localhost; on plain http try the classic copy command first
   try {
-    if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); flash(btn, 'Copied'); return; }
+    if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); flash(btn, tr('Copied')); return; }
     const ta = document.createElement('textarea');
     ta.value = text; ta.readOnly = true;
     Object.assign(ta.style, { position: 'fixed', top: '0', left: '-9999px', opacity: '0' });
@@ -153,13 +156,13 @@ async function copyText(text, btn, fallbackEl) {
     const ok = document.execCommand('copy');
     ta.remove();
     if (!ok) throw new Error('copy failed');
-    flash(btn, 'Copied');
+    flash(btn, tr('Copied'));
   } catch {
     if (fallbackEl) {
       const r = document.createRange(); r.selectNodeContents(fallbackEl);
       const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
-      flash(btn, 'Selected, press Ctrl+C');
-    } else flash(btn, 'Copy failed');
+      flash(btn, tr('Selected, press Ctrl+C'));
+    } else flash(btn, tr('Copy failed'));
   }
 }
 
@@ -187,7 +190,13 @@ function presetName(name) {
 const safeName = s => s.replace(/[\\/:*?"<>|]+/g, '').trim() || 'eq';
 const fmtHz = f => f >= 1000 ? `${+(f / 1000).toFixed(f >= 10000 ? 0 : 1)}k` : `${Math.round(f)}`;
 const fmtHzLong = f => f >= 1000 ? `${+(f / 1000).toFixed(f >= 10000 ? 1 : 2)} kHz` : `${Math.round(f)} Hz`;
-const TYPE_NAME = { peak: 'Peak', lowshelf: 'Low shelf', highshelf: 'High shelf' };
+const TYPE_NAME = { peak: () => tr('Peak'), lowshelf: () => tr('Low shelf'), highshelf: () => tr('High shelf') };
+// band names from core.js ("Band 1", "Bass", …) in the page language
+const bandName = l => {
+  const m = /^(Band|Filter) (\d+)$/.exec(l);
+  return !m ? tr(l) : m[1] === 'Band' ? tr('Band {0}', [m[2]]) : tr('Filter {0}', [m[2]]);
+};
+const formName = f => (f === 'over-ear' ? tr('over-ear') : f === 'in-ear' ? tr('in-ear') : f);
 const TYPE_SHORT = { peak: 'PK', lowshelf: 'LS', highshelf: 'HS' };
 
 // Settings
@@ -250,14 +259,14 @@ function readForm() {
 function syncVisibility() {
   const o = state.opt, a = APPS[o.app] || APPS.adi2, e = effective(o), dev = e.device;
   $('adi-fields').hidden = dev !== 'adi2';
-  $('device-hint').textContent = a.hint || '';
+  $('device-hint').textContent = a.hint ? a.hint() : '';
   $('slow-rec').hidden = dev !== 'adi2';
   $('slow-fields').hidden = !o.slowComp;
   $('slow-band-field').hidden = dev !== 'adi2';
   $('slowBand').querySelector('option[value="BT"]').disabled = !o.useBT;
   if (!o.useBT && $('slowBand').value === 'BT') { $('slowBand').value = 'B5'; o.slowBand = 'B5'; }
   $('cap-field').hidden = !o.limitOn;
-  $('cap-label').textContent = `${+(o.limitHz / 1000).toFixed(1)} kHz cap`;
+  $('cap-label').textContent = tr('{0} kHz cap', [+(o.limitHz / 1000).toFixed(1)]);
   $('band5Type').disabled = dev === 'adi2' && o.slowComp && o.slowBand === 'B5';
   $('maxBands').max = slotCount(e);
   const ignore = ['app', 'device', 'maxBands'];
@@ -287,7 +296,7 @@ function renderList() {
   const ul = $('hp-list');
   ul.replaceChildren(...all.map(h => {
     const li = el('li', { role: 'option', tabindex: '-1', 'aria-selected': String(state.hp?.path === h.path) },
-      el('span', {}, h.name), el('span', { class: 'form' }, h.form));
+      el('span', {}, h.name), el('span', { class: 'form' }, formName(h.form)));
     const pick = () => selectHeadphone(h);
     li.addEventListener('click', pick);
     li.addEventListener('keydown', e => {
@@ -303,7 +312,7 @@ function renderList() {
   // One tab stop: the selected entry, or the first one.
   const stop = ul.querySelector('[aria-selected="true"]') || ul.firstElementChild;
   if (stop) stop.tabIndex = 0;
-  $('hp-count').textContent = `${all.length} of ${INDEX.headphones.length} measurements`;
+  $('hp-count').textContent = tr('{0} of {1} measurements', [all.length, INDEX.headphones.length]);
 }
 
 function selectHeadphone(h) {
@@ -450,37 +459,37 @@ function legend(id, items) {
     el('span', {}, (() => { const i = el('i', { class: kind || '' }); i.style.borderColor = color; return i; })(), label)));
 }
 
-const CHART_TITLES = { meas: 'Measurement and target', eq: 'EQ curve', result: 'With EQ' };
+const CHART_TITLES = { meas: () => tr('Measurement and target'), eq: () => tr('EQ curve'), result: () => tr('With EQ') };
 
 function specs() {
   const R = state.result;
   if (!R) return {};
   const { an, opt, eq, perFilter } = R;
   const shadeFrom = opt.limitOn ? an.fHigh : null;
-  const shadeLabel = 'not corrected';
+  const shadeLabel = tr('not corrected');
   const equalized = an.raw.map((v, i) => v + eq[i] + an.roll[i]);
   return {
     meas: () => ({
       grid: an.grid, shadeFrom, shadeLabel, minSpan: 30,
       series: [
-        { values: an.targetAligned, color: css('--c-target'), dash: '5 4', width: 1.5, readout: 'target' },
-        { values: an.raw, color: css('--c-meas'), width: 1.8, readout: 'measured' },
+        { values: an.targetAligned, color: css('--c-target'), dash: '5 4', width: 1.5, readout: tr('target') },
+        { values: an.raw, color: css('--c-meas'), width: 1.8, readout: tr('measured') },
       ],
     }),
     eq: () => ({
       grid: an.grid, shadeFrom, shadeLabel, minSpan: 16, zero: true,
       series: [
         ...perFilter.map(v => ({ values: v, color: css('--c-band'), width: 1, opacity: 0.9 })),
-        { values: an.desired, color: css('--c-target'), dash: '1.5 3', width: 1.6, readout: 'wanted' },
+        { values: an.desired, color: css('--c-target'), dash: '1.5 3', width: 1.6, readout: tr('wanted') },
         { values: eq, color: css('--c-eq'), width: 2.4, readout: 'EQ' },
       ],
     }),
     result: () => ({
       grid: an.grid, shadeFrom, shadeLabel, minSpan: 30,
       series: [
-        { values: an.raw, color: css('--c-meas'), width: 1.1, opacity: 0.35, readout: 'before' },
-        { values: an.targetAligned, color: css('--c-target'), dash: '5 4', width: 1.5, readout: 'target' },
-        { values: equalized, color: css('--c-result'), width: 1.9, readout: 'with EQ' },
+        { values: an.raw, color: css('--c-meas'), width: 1.1, opacity: 0.35, readout: tr('before') },
+        { values: an.targetAligned, color: css('--c-target'), dash: '5 4', width: 1.5, readout: tr('target') },
+        { values: equalized, color: css('--c-result'), width: 1.9, readout: tr('with EQ') },
       ],
     }),
   };
@@ -493,9 +502,9 @@ function renderCharts() {
   S = specs();
   charts.forEach(c => c.render());
   if (!state.result) return;
-  legend('lg-meas', [['measured', css('--c-meas')], ['target', css('--c-target'), 'dash']]);
-  legend('lg-eq', [['EQ total', css('--c-eq')], ['single bands', css('--c-band')], ['wanted correction', css('--c-target'), 'dot']]);
-  legend('lg-result', [['with EQ', css('--c-result')], ['target', css('--c-target'), 'dash'], ['before', css('--c-meas')]]);
+  legend('lg-meas', [[tr('measured'), css('--c-meas')], [tr('target'), css('--c-target'), 'dash']]);
+  legend('lg-eq', [[tr('EQ total'), css('--c-eq')], [tr('single bands'), css('--c-band')], [tr('wanted correction'), css('--c-target'), 'dot']]);
+  legend('lg-result', [[tr('with EQ'), css('--c-result')], [tr('target'), css('--c-target'), 'dash'], [tr('before'), css('--c-meas')]]);
 }
 
 // Main pipeline
@@ -543,12 +552,12 @@ async function run() {
   save();
   if (!state.hp) { state.result = null; renderAll(); return; }
   try {
-    setStatus(state.hp.kind === 'repo' && !csvCache.has(state.hp.path) ? `Loading ${state.hp.name}…` : '');
+    setStatus(state.hp.kind === 'repo' && !csvCache.has(state.hp.path) ? tr('Loading {0}…', [state.hp.name]) : '');
     const meas = state.hp.kind === 'file' ? state.hp.data : await loadCsv(state.hp.path);
     const target = !state.target ? null : state.target.kind === 'file' ? state.target.data : await loadCsv(state.target.path);
     if (token !== runToken) return;
     const opt = effective(state.opt);
-    const slow = setTimeout(() => token === runToken && setStatus('Calculating…'), 200);
+    const slow = setTimeout(() => token === runToken && setStatus(tr('Calculating…')), 200);
     const { an, fit } = await compute(meas, target, opt);
     clearTimeout(slow);
     if (token !== runToken) return;
@@ -585,13 +594,13 @@ function recompute() {
 function renderAll() {
   syncVisibility();
   const R = state.result;
-  const name = state.hp ? state.hp.name : 'Pick a headphone';
+  const name = state.hp ? state.hp.name : tr('Pick a headphone');
   $('title').textContent = name;
   if (!state.adiName && state.hp) state.adiName = presetName(state.hp.name);
   $('adiName').value = state.adiName;
 
   if (!R) {
-    $('meta').textContent = state.hp ? '' : 'Choose a measurement on the left, or upload your own.';
+    $('meta').textContent = state.hp ? '' : tr('Choose a measurement on the left, or upload your own.');
     for (const id of ['st-before', 'st-after', 'st-bands', 'st-boost']) $(id).textContent = '–';
     $('st-note').textContent = '';
     $('filters').tBodies[0].replaceChildren();
@@ -600,11 +609,13 @@ function renderAll() {
     return;
   }
   const { an, opt } = R;
-  const src = state.hp.kind === 'repo' ? `oratory1990 · ${state.hp.form}` : 'your measurement';
-  const tgt = state.target ? state.target.name : 'flat';
-  const taste = [opt.bassDb ? `bass ${opt.bassDb > 0 ? '+' : ''}${opt.bassDb} dB` : '', opt.tiltDbOct ? `tilt ${opt.tiltDbOct > 0 ? '+' : ''}${opt.tiltDbOct} dB/oct` : ''].filter(Boolean).join(', ');
-  const range = opt.limitOn ? `corrected ${fmtHzLong(opt.fLow)} – ${fmtHzLong(opt.limitHz)}` : 'full-range correction';
-  $('meta').textContent = `${src} · target ${tgt}${taste ? ` (${taste})` : ''} · ${range} · level matched at ${fmtHzLong(opt.refHz)}${opt.slowComp && opt.device !== 'totalmix' ? ` · Slow filter −${opt.slowLossDb} dB compensated` : ''}`;
+  const sign = v => `${v > 0 ? '+' : ''}${v}`;
+  const src = state.hp.kind === 'repo' ? `oratory1990 · ${formName(state.hp.form)}` : tr('your measurement');
+  const tgt = state.target ? state.target.name : tr('flat');
+  const taste = [opt.bassDb ? tr('bass {0} dB', [sign(opt.bassDb)]) : '', opt.tiltDbOct ? tr('tilt {0} dB/oct', [sign(opt.tiltDbOct)]) : ''].filter(Boolean).join(', ');
+  const range = opt.limitOn ? tr('corrected {0} – {1}', [fmtHzLong(opt.fLow), fmtHzLong(opt.limitHz)]) : tr('full-range correction');
+  $('meta').textContent = [src, tr('target {0}', [tgt]) + (taste ? ` (${taste})` : ''), range, tr('level matched at {0}', [fmtHzLong(opt.refHz)]),
+    opt.slowComp && opt.device !== 'totalmix' ? tr('Slow filter −{0} dB compensated', [opt.slowLossDb]) : ''].filter(Boolean).join(' · ');
 
   renderTable();
   refreshOutputs();
@@ -620,18 +631,18 @@ function refreshOutputs() {
   $('st-before').textContent = `${st.rmsBefore.toFixed(1)} dB`;
   $('st-after').textContent = `${st.rmsAfter.toFixed(1)} dB`;
   $('st-bands').textContent = `${active.length} / ${slotCount(opt)}`;
-  $('st-boost').textContent = st.maxBoost >= 0.05 ? `+${st.maxBoost.toFixed(1)} dB` : 'none';
+  $('st-boost').textContent = st.maxBoost >= 0.05 ? `+${st.maxBoost.toFixed(1)} dB` : tr('none');
 
-  const notes = ['Deviation: RMS difference to target in the corrected range.'];
+  const notes = [tr('Deviation: RMS difference to target in the corrected range.')];
   let worst = 0, worstF = 0;
   for (let i = 0; i < an.grid.length; i++) {
     if (an.grid[i] < opt.fLow || an.grid[i] > an.fHigh) continue;
     const need = -an.errorSmoothed[i] - an.roll[i];
     if (need - opt.maxBoost > worst) { worst = need - opt.maxBoost; worstF = an.grid[i]; }
   }
-  if (worst > 1) notes.push(`Boost limited to ${opt.maxBoost} dB (${fmtHzLong(worstF)} needs ${(opt.maxBoost + worst).toFixed(0)} dB).`);
-  if (st.maxBoost > 0.5) notes.push(`Preamp: ${st.preamp.toFixed(1)} dB.`);
-  if (state.edited) notes.push('Edited bands.');
+  if (worst > 1) notes.push(tr('Boost limited to {0} dB ({1} needs {2} dB).', [opt.maxBoost, fmtHzLong(worstF), (opt.maxBoost + worst).toFixed(0)]));
+  if (st.maxBoost > 0.5) notes.push(tr('Preamp: {0} dB.', [st.preamp.toFixed(1)]));
+  if (state.edited) notes.push(tr('Edited bands.'));
   $('st-note').textContent = notes.join(' ');
   $('refit').hidden = !state.edited;
 
@@ -650,12 +661,12 @@ function renderTable() {
   const rows = state.filters.map((f, idx) => {
     const slot = slots.find(s => s.id === f.id) || { fMin: 20, fMax: 20000, qMin: 0.1, qMax: 20, gMin: -24, gMax: 24 };
     const fitted = R.fit.filters.find(x => x.id === f.id);
-    const tr = el('tr', { class: [f.slow ? 'slow' : '', f.off ? 'off' : ''].join(' ').trim() });
-    const on = el('input', { type: 'checkbox', 'aria-label': `${f.label} on` });
+    const row = el('tr', { class: [f.slow ? 'slow' : '', f.off ? 'off' : ''].join(' ').trim() });
+    const on = el('input', { type: 'checkbox', 'aria-label': tr('{0} on', [bandName(f.label)]) });
     on.checked = !f.off;
-    on.addEventListener('change', () => { f.off = !on.checked; state.edited = true; tr.classList.toggle('off', f.off); refreshOutputs(); });
+    on.addEventListener('change', () => { f.off = !on.checked; state.edited = true; row.classList.toggle('off', f.off); refreshOutputs(); });
     const num = (key, min, max, step, digits) => {
-      const inp = el('input', { type: 'number', min, max, step, 'aria-label': `${f.label} ${key}` });
+      const inp = el('input', { type: 'number', min, max, step, 'aria-label': `${bandName(f.label)} ${key}` });
       inp.value = key === 'f' ? Math.round(f.f) : f[key].toFixed(digits);
       const mark = () => inp.classList.toggle('changed', !!fitted && Math.abs(fitted[key] - f[key]) > 1e-6);
       mark();
@@ -668,21 +679,21 @@ function renderTable() {
       inp.addEventListener('change', () => { inp.value = key === 'f' ? Math.round(f.f) : f[key].toFixed(digits); });
       return inp;
     };
-    tr.append(
+    row.append(
       el('td', { class: 'on' }, on),
-      el('td', {}, f.label),
-      el('td', { class: 'type' }, el('span', { class: 'long' }, TYPE_NAME[f.type]), el('span', { class: 'short', title: TYPE_NAME[f.type] }, TYPE_SHORT[f.type])),
+      el('td', {}, bandName(f.label)),
+      el('td', { class: 'type' }, el('span', { class: 'long' }, TYPE_NAME[f.type]()), el('span', { class: 'short', title: TYPE_NAME[f.type]() }, TYPE_SHORT[f.type])),
       el('td', { class: 'num' }, num('f', slot.fMin, slot.fMax, 1, 0)),
       el('td', { class: 'num' }, num('gain', Math.max(slot.gMin, -24), Math.min(slot.gMax + 6, 24), steps.g, 1)),
       el('td', { class: 'num' }, num('q', slot.qMin, slot.qMax, steps.q, steps.q < 0.1 ? 2 : 1)),
     );
-    return tr;
+    return row;
   });
-  if (!rows.length) rows.push(el('tr', { class: 'empty' }, el('td', { colspan: '6' }, 'No band makes a meaningful difference with these settings.')));
+  if (!rows.length) rows.push(el('tr', { class: 'empty' }, el('td', { colspan: '6' }, tr('No band makes a meaningful difference with these settings.'))));
   $('filters').tBodies[0].replaceChildren(...rows);
   $('out-hint').textContent = opt.device === 'adi2'
-    ? (opt.quantize ? 'Unlisted bands: 0 dB.' : 'Not rounded.')
-    : opt.device === 'totalmix' ? 'Unlisted bands: 0 dB.'
+    ? (opt.quantize ? tr('Unlisted bands: 0 dB.') : tr('Not rounded.'))
+    : opt.device === 'totalmix' ? tr('Unlisted bands: 0 dB.')
     : '';
 }
 
@@ -697,7 +708,7 @@ function pngExport() {
   if (!R) return;
   const keys = CHARTS.filter(k => state.show[k]);
   const withTable = $('png-table').checked;
-  if (!keys.length && !withTable) { setStatus('Switch on at least one chart or the table for the image.', true); return; }
+  if (!keys.length && !withTable) { setStatus(tr('Switch on at least one chart or the table for the image.'), true); return; }
   const W = 1200, chartH = 300, margin = 24;
   const filters = state.filters.filter(f => !f.off);
   const tableH = withTable ? 30 + 24 * Math.max(1, filters.length) : 0;
@@ -722,7 +733,7 @@ function pngExport() {
     let y = 90;
     list.forEach((img, i) => {
       ctx.fillStyle = css('--ink'); ctx.font = '600 16px system-ui, sans-serif';
-      ctx.fillText(CHART_TITLES[keys[i]], margin, y + 16);
+      ctx.fillText(CHART_TITLES[keys[i]](), margin, y + 16);
       ctx.drawImage(img, margin, y + 26, W - 2 * margin, chartH);
       y += chartH + 34;
     });
@@ -737,7 +748,7 @@ function pngExport() {
     ctx.fillStyle = css('--muted'); ctx.font = '12px system-ui, sans-serif';
     ctx.fillText('oratory1990 measurements via AutoEq · ADI-2-Pi Headphone EQ Generator', margin, H - 14);
     canvas.toBlob(b => download(`${safeName(state.hp.name)} EQ.png`, b), 'image/png');
-  }).catch(() => setStatus('Could not render the PNG in this browser.', true));
+  }).catch(() => setStatus(tr('Could not render the PNG in this browser.'), true));
 }
 
 // Wiring
@@ -832,7 +843,7 @@ async function init() {
     setStatus(e.message, true);
     return;
   }
-  $('data-ref').textContent = `commit ${INDEX.ref.slice(0, 7)}, list updated ${INDEX.generated}`;
+  $('data-ref').textContent = tr('commit {0}, list updated {1}', [INDEX.ref.slice(0, 7), INDEX.generated]);
   renderTargets();
   applySavedRefs(saved);
   if (!state.hp) {
@@ -881,6 +892,87 @@ function adiSetItems(filters, ch) {
   return items;
 }
 
+/** ADI-2-Pi's tab bar (web/tabs.js), with the outputs of the connected model (null = not known yet). */
+function renderSiteTabs(model) {
+  const nav = $('site-tabs');
+  if (!nav || typeof globalThis.ADI2_TABS !== 'function') return;
+  const dac = model === 'dac';
+  const tabs = [
+    { id: 'overview', label: tr('Overview') },
+    { id: 'line', label: 'Line Out' },
+    { id: 'ph12', label: dac ? 'Phones' : 'Phones 1/2' },
+    { id: 'ph34', label: dac ? 'IEM' : 'Phones 3/4' },
+    ...(dac ? [] : [{ id: 'in', label: tr('Input') }]),
+    ...globalThis.ADI2_TABS(tr),
+  ];
+  let debug = false;
+  try { debug = JSON.parse(localStorage.getItem('adi2.debug')) === true; } catch {}
+  if (debug) tabs.push({ id: 'debug', label: tr('Debug') });
+  nav.replaceChildren(...tabs.map(t => el('a', { class: 'site-tab', href: t.href || `/#${t.id}`, ...(t.id === 'eq' ? { 'aria-current': 'page' } : {}) }, t.label)));
+}
+let siteModel = null;
+
+/** Header: the ADI-2's connection and the setups, as on the main page. */
+function setupHeader() {
+  const dot = $('conn-dot'), txt = $('conn-text'), sel = $('setup-select');
+  let setups = [], ready = null, noteUntil = 0;
+  const fill = () => {
+    sel.replaceChildren(el('option', { value: '' }, tr('Load setup…')),
+      ...setups.map((n, i) => el('option', { value: String(i + 1) }, `${i + 1}${n ? ` · ${n}` : ''}`)));
+    sel.value = '';
+  };
+  const poll = async () => {
+    let info = null;
+    try { const r = await fetch('/api/info', { cache: 'no-cache' }); if (r.ok) info = await r.json(); } catch {}
+    const d = (info && info.device) || {};
+    dot.className = 'site-dot';
+    if (!info) { dot.classList.add('bad'); txt.textContent = tr('ADI-2-Pi offline – reconnecting…'); }
+    else if (!d.connected) { dot.classList.add('bad'); txt.textContent = tr('No ADI-2'); }
+    else if (!d.id) { dot.classList.add('warn'); txt.textContent = tr('ADI-2 found, waiting for an answer…'); }
+    else if (d.answering === false) { dot.classList.add('bad'); txt.textContent = tr('{0} – not answering', [d.modelName]); }
+    else if (!d.ready) { dot.classList.add('warn'); txt.textContent = tr('{0} – reading settings…', [d.modelName]); }
+    else if (Date.now() >= noteUntil) { dot.classList.add('ok'); txt.textContent = d.modelName; }
+    else dot.classList.add('ok');
+    if (info && info.bridge && info.bridge.name) $('site-name').textContent = info.bridge.name;
+    const isReady = !!(d.ready && d.answering !== false);
+    if (isReady && ready !== true) {
+      try { const r = await fetch('/api/state?view=named'); if (r.ok) { setups = (await r.json()).setups || []; fill(); } } catch {}
+    }
+    ready = isReady;
+    sel.disabled = !isReady;
+    if (info && (d.model || null) !== siteModel) { siteModel = d.model || null; renderSiteTabs(siteModel); }
+    setTimeout(poll, info ? 4000 : 2000);
+  };
+  sel.addEventListener('change', async () => {
+    const n = Number(sel.value);
+    sel.value = '';
+    if (!n) return;
+    const r = await fetch('/api/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'load', n }) }).catch(() => null);
+    if (r && r.ok) { txt.textContent = tr('Loading setup {0}{1}', [n, setups[n - 1] ? ` (${setups[n - 1]})` : '']); noteUntil = Date.now() + 3000; }
+  });
+  fill();
+  poll();
+}
+
+/** The page's static texts (text, placeholders, labels) in the page language. */
+function translatePage() {
+  if (!globalThis.I18N || globalThis.I18N.lang === 'en') return;
+  document.title = `${tr('Headphone EQ')} · ADI-2-Pi`;
+  // names (headphones, targets, RME products), numbers and generated content stay as they are
+  const keep = 'script, style, pre, code, svg, #site-tabs, #hp-list, #target, #filters tbody, #app, #site-name';
+  const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT,
+    { acceptNode: n => (n.parentElement && n.parentElement.closest(keep) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT) });
+  for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+    const key = n.nodeValue.replace(/\s+/g, ' ').trim();
+    if (!/[A-Za-z]/.test(key)) continue;
+    const t = tr(key);
+    if (t !== key) n.nodeValue = n.nodeValue.replace(/\S(?:[\s\S]*\S)?/, t);
+  }
+  for (const e of document.querySelectorAll('[placeholder], [aria-label], [title]')) {
+    for (const a of ['placeholder', 'aria-label', 'title']) if (e.hasAttribute(a)) e.setAttribute(a, tr(e.getAttribute(a)));
+  }
+}
+
 async function setupSend() {
   let info;
   try {
@@ -896,20 +988,11 @@ async function setupSend() {
   if (!sel.value) sel.value = 'ph12';
   sel.addEventListener('change', () => { try { localStorage.setItem(SEND_KEY, sel.value); } catch {} });
   $('send-adi').hidden = false;
-  // same tab names as the main page
-  if (dac) {
-    for (const t of document.querySelectorAll('.site-tab[data-ch]')) {
-      if (t.dataset.ch === 'ph12') t.textContent = 'Phones';
-      if (t.dataset.ch === 'ph34') t.textContent = 'IEM';
-      if (t.dataset.ch === 'in') t.hidden = true;
-    }
-  }
-  if (info.bridge && info.bridge.name) $('site-name').textContent = info.bridge.name;
 
   const msg = $('send-msg');
   const say = (t, cls) => { msg.textContent = t; msg.className = `hint send-msg ${cls || ''}`; };
   $('open-presets').addEventListener('click', () => {
-    if (!state.filters.length) { say('Nothing to hand over yet.', 'err'); return; }
+    if (!state.filters.length) { say(tr('Nothing to hand over yet.'), 'err'); return; }
     const items = adiSetItems(state.filters, 'draft').filter(it => it.side === 'L').map(({ id, side, value }) => ({ id, side, value }));
     const name = ($('adiName').value || (state.hp && state.hp.name) || 'EQ').slice(0, 14); // the unit's own limit
     try { localStorage.setItem('adi2.eqDraft', JSON.stringify({ name, items })); } catch {}
@@ -917,11 +1000,11 @@ async function setupSend() {
   });
   $('send-adi-btn').addEventListener('click', async () => {
     const name = sel.options[sel.selectedIndex].textContent;
-    if (!state.filters.length) { say('Nothing to send yet.', 'err'); return; }
-    if (!confirm(`Replace the EQ on ${name} with this one?`)) return;
+    if (!state.filters.length) { say(tr('Nothing to send yet.'), 'err'); return; }
+    if (!confirm(tr('Replace the EQ on {0} with this one?', [name]))) return;
     const btn = $('send-adi-btn');
     btn.disabled = true;
-    say('Applying…');
+    say(tr('Applying…'));
     try {
       const r = await fetch('/api/set', {
         method: 'POST',
@@ -929,11 +1012,11 @@ async function setupSend() {
         body: JSON.stringify({ set: adiSetItems(state.filters, sel.value) }),
       });
       const body = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(body.error || `error ${r.status}`);
-      say(`Applied to ${name}.`, 'ok');
-      msg.append(' ', el('a', { href: `/#${sel.value}` }, 'Open it in ADI-2-Pi'));
+      if (!r.ok) throw new Error(body.error || tr('error {0}', [r.status]));
+      say(tr('Applied to {0}.', [name]), 'ok');
+      msg.append(' ', el('a', { href: `/#${sel.value}` }, tr('Open it in ADI-2-Pi')));
     } catch (e) {
-      say(`Not applied: ${e.message}`, 'err');
+      say(tr('Not applied: {0}', [e.message]), 'err');
     } finally {
       btn.disabled = false;
     }
@@ -945,11 +1028,13 @@ async function setupSend() {
 function showDataSource() {
   const o = INDEX && INDEX.origin;
   if (!o) return;
-  $('data-src').textContent = `${o.headphones} headphones, AutoEq commit ${String(o.ref).slice(0, 7)} from ${o.generated}` +
-    (o.source === 'updated' ? ' (updated on this Pi).' : ' (shipped with ADI-2-Pi).');
+  const v = [o.headphones, String(o.ref).slice(0, 7), o.generated];
+  $('data-src').textContent = o.source === 'updated'
+    ? tr('{0} headphones, AutoEq commit {1} from {2} (updated on this Pi).', v)
+    : tr('{0} headphones, AutoEq commit {1} from {2} (shipped with ADI-2-Pi).', v);
   $('data-reset').hidden = o.source !== 'updated';
   $('data-update').hidden = !o.updates;
-  $('data-ref').textContent = `commit ${String(INDEX.ref).slice(0, 7)}, list updated ${INDEX.generated}`;
+  $('data-ref').textContent = tr('commit {0}, list updated {1}', [String(INDEX.ref).slice(0, 7), INDEX.generated]);
 }
 
 async function reloadData() {
@@ -967,9 +1052,9 @@ function setupData() {
   const btn = $('data-update');
   const poll = async () => {
     const s = await fetch('/api/eq/update').then(r => r.json()).catch(() => null);
-    if (!s) { say('Lost the connection to the ADI-2-Pi.', 'err'); btn.disabled = false; return; }
+    if (!s) { say(tr('Lost the connection to the ADI-2-Pi.'), 'err'); btn.disabled = false; return; }
     if (s.state === 'running') {
-      say(s.total ? `${s.step} ${s.done} of ${s.total}` : s.step);
+      say(s.total ? tr('{0} {1} of {2}', [s.step, s.done, s.total]) : s.step);
       setTimeout(poll, 700);
       return;
     }
@@ -977,28 +1062,28 @@ function setupData() {
     if (s.state === 'error') { say(s.message, 'err'); return; }
     if (s.state === 'done') {
       say(s.added || s.changed
-        ? `Updated: ${s.added} new and ${s.changed} changed files. ${s.total} headphones now.`
-        : 'Already up to date.', 'ok');
+        ? tr('Updated: {0} new and {1} changed files. {2} headphones now.', [s.added, s.changed, s.total])
+        : tr('Already up to date.'), 'ok');
       await reloadData().catch(e => say(e.message, 'err'));
     }
   };
   btn.addEventListener('click', async () => {
     btn.disabled = true;
-    say('Contacting GitHub…');
+    say(tr('Contacting GitHub…'));
     const r = await fetch('/api/eq/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
       .catch(() => null);
     if (!r || !r.ok) {
       const e = r ? await r.json().catch(() => ({})) : {};
-      say(e.error || 'Could not start the update.', 'err');
+      say(e.error || tr('Could not start the update.'), 'err');
       btn.disabled = false;
       return;
     }
     poll();
   });
   $('data-reset').addEventListener('click', async () => {
-    if (!confirm('Go back to the headphone data that shipped with ADI-2-Pi? Downloaded updates are deleted from the Pi.')) return;
+    if (!confirm(tr('Go back to the headphone data that shipped with ADI-2-Pi? Downloaded updates are deleted from the Pi.'))) return;
     await fetch('/api/eq/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => null);
-    say('Back to the shipped data.', 'ok');
+    say(tr('Back to the shipped data.'), 'ok');
     await reloadData().catch(e => say(e.message, 'err'));
   });
   // an update started from another browser may still be running
@@ -1012,6 +1097,12 @@ document.getElementById('theme-btn').addEventListener('click', () => {
   try { localStorage.setItem('adi2.theme', JSON.stringify(next)); } catch {}
 });
 
-init().then(showDataSource);
-setupData();
-setupSend();
+// start once the language is loaded, so every text appears in it from the first draw
+(globalThis.I18N ? globalThis.I18N.ready : Promise.resolve()).catch(() => {}).then(() => {
+  translatePage();
+  renderSiteTabs(null);
+  setupHeader();
+  init().then(showDataSource);
+  setupData();
+  setupSend();
+});

@@ -1,0 +1,16 @@
+# installed by adi2-pi: installs an uploaded, signed ADI-2-Pi release (System → ADI-2-Pi updates →
+# Install from a file). ADI-2-Pi may start this unit (polkit rule 50-adi2-pi.rules); it runs as root.
+[Unit]
+Description=ADI-2-Pi: install an uploaded release
+Documentation=file:///opt/adi2-pi/README.md
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /opt/adi2-pi/lib/self-update.sh
+TimeoutStartSec=2h
+LogsDirectory=adi2-pi
+StandardOutput=truncate:/var/log/adi2-pi/self-update.log
+StandardError=inherit
+# a shutdown while it runs: no signal to the installer, give it up to 15 minutes to finish
+KillSignal=SIGCONT
+TimeoutStopSec=900

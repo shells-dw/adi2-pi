@@ -1,0 +1,5 @@
+# Unix line endings on every system (the scripts run on the Pi); git decides what is text
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.pyc binary

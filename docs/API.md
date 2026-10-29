@@ -102,7 +102,7 @@ Standard WebSocket libraries answer by themselves.
 |---|---|---|
 | `hello` | `api`, `access`, `bridge {name, version, host, auth, viewOpen}`, `device` | on connect (`auth`: an access key is set; `access`: `full`, or `read` when the connection has no valid key and `viewOpen` lets it read) |
 | `access` | `access` (`full` / `read`) | the connection's access changed because the key or `viewOpen` setting changed |
-| `state` | `device`, `p {"addr.idx": value}`, `setups [9 names]`, `eqPresets [20]`, `unitStatus`, `statusInfo`, `silences`, `bluetooth`, `streaming`, `routing`, `inputPriority`, `trigger`, `automation`, `mqtt`, `ups`, `updates`, `osUpdates`, `nowplaying` | on connect, on `get` |
+| `state` | `device`, `p {"addr.idx": value}`, `setups [9 names]`, `eqPresets [20]`, `unitStatus`, `statusInfo`, `silences`, `bluetooth`, `streaming`, `routing`, `inputPriority`, `trigger`, `automation`, `mqtt`, `ups`, `updates`, `osUpdates`, `selfUpdate`, `nowplaying` | on connect, on `get` |
 | `settings` | `settings` | on connect and when settings change |
 | `p` | `p {"addr.idx": value}`, `origin` | values changed. `origin`: `device` = on the unit (knob, remote, read-back), `client` = through the bridge, `auto` = the bridge switching outputs to USB while the Pi plays, `input` = input priority, `bridge` = Loopback for Bluetooth out, `scene` / `rule` = a scene applied by a client / by an action, `profile` = a headphone profile applied, `sleep` = sleep timer, `start` = start volume, `stream` = volume of an AirPlay/Spotify sender, `restore` = restore from a backup, `mqtt` = MQTT command |
 | `device` | `device` | ADI-2 connected / identified / ready / gone |
@@ -119,6 +119,7 @@ Standard WebSocket libraries answer by themselves.
 | `nowplaying` | `nowplaying` | title, artist, play state of what the Pi plays changed (see below) |
 | `updates` | `updates` | update check switched, started or finished (see below) |
 | `osUpdates` | `osUpdates` | system updates: mode changed, check or install started or finished (see below) |
+| `selfUpdate` | `selfUpdate` | install from a file: release staged, installing, finished |
 | `sleep` | `sleep` | sleep timer started, fading, ended or cancelled (`null` = off; see below) |
 | `automation` | `automation { sleep, fired, waiting }` | an action was applied or starts / stops waiting (`fired`: the last 20, `[{ at, rule, scene, event }]`; `waiting`: `[{ rule, scene, end, due, event }]`, `due` in ms since 1970) |
 | `restore` | `restore` | restore progress (see [Backup](#backup)) |
@@ -260,6 +261,8 @@ While the unit is not connected or not answering, sets are refused with 409.
 | `GET /api/ups` / `POST /api/ups` | – / `{ shutdown?, delaySec?, lowPct?, cancel? }` | UPS HAT (see below) |
 | `GET /api/updates` / `POST /api/updates` | – / `{ check?, now? }` | update check (see below) |
 | `GET /api/osupdates` / `POST /api/osupdates` | – / `{ mode?, action? }` | system updates (see below) |
+| `GET /api/selfupdate` / `POST /api/selfupdate` | – / `{ action: 'install' \| 'discard' }` | install from a file (see below) |
+| `POST /api/selfupdate/upload` | the release archive (`Content-Type: application/octet-stream`), header `X-ADI2PI-Signature`: the signature (base64) | checks and stages a release |
 | `POST /api/hook` | `{ receiver, value }` | volume of an AirPlay/Spotify sender; only from the Pi itself (bin/adi2-pi-hook.js) |
 | `GET /api/eq/index` | | headphone and target list, plus `origin { ref, generated, source: bundled\|updated }` |
 | `GET /api/eq/file?path=…` | a `path` from the list | measurement / target CSV, from the Pi (never the internet) |
@@ -570,6 +573,26 @@ release is published. With `check` off, no request is made unless `now` is sent.
   bridge starts later than 10 minutes after boot, 5 minutes later or 24 h after the last check.
 - After an install that replaced Node.js the bridge exits; systemd starts it on the new version.
 - The last result is kept in `<data>/os-updates.json`.
+
+## Install from a file
+
+```jsonc
+{
+  "available": true, "reason": null,   // false without lib/release-key.pub or the root service
+  "current": "1.1.1",
+  "state": "idle",                     // idle | installing
+  "staged": { "version": "1.1.2", "size": 2885883, "at": 1793000000000, "newer": true, "same": false },
+  "lastRun": { "at": 1793000000000, "ok": false, "log": ["…last lines of self-update.log"] }
+}
+```
+
+- The upload is checked (Ed25519 signature against `lib/release-key.pub`, top folder `adi2-pi/`
+  with `package.json` and `install.sh`) and kept in `<data>/update/`; 64 MB at most.
+- `install` starts `adi2-pi-self-update.service`: it copies the staged files, checks the signature
+  again, unpacks the copy and runs its `install.sh -y --same-options`. The installer restarts
+  ADI-2-Pi; afterwards `lastRun` comes from systemd.
+- Signature file: `adi2-pi-<version>.tar.gz.sig`, base64 Ed25519 signature of the archive's bytes
+  (`node tools/release.js build`).
 
 ## Volume from the sender
 

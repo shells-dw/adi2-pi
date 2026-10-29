@@ -5,6 +5,8 @@
 'use strict';
 (() => {
   const K = 'adi2.lang';
+  // lang/ next to this script, so pages in subfolders (/eq/) find it too
+  const base = document.currentScript ? new URL('.', document.currentScript.src).href : '';
   let dict = {};
   let lang = 'en';
   const languages = [{ code: 'en', name: 'English' }];
@@ -19,7 +21,7 @@
 
   const ready = (async () => {
     try {
-      const list = await fetch('lang/index.json').then((r) => (r.ok ? r.json() : []));
+      const list = await fetch(`${base}lang/index.json`).then((r) => (r.ok ? r.json() : []));
       for (const l of list) if (l && l.code && l.name && !languages.some((x) => x.code === l.code)) languages.push({ code: String(l.code), name: String(l.name) });
     } catch { /* no languages */ }
     const stored = get();
@@ -34,7 +36,7 @@
     }
     if (wanted && wanted !== 'en') {
       try {
-        const d = await fetch(`lang/${wanted}.json`).then((r) => (r.ok ? r.json() : null));
+        const d = await fetch(`${base}lang/${wanted}.json`).then((r) => (r.ok ? r.json() : null));
         if (d && typeof d === 'object') { dict = d; lang = wanted; }
       } catch { /* English */ }
     }

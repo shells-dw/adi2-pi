@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Headphone EQ Generator · ADI-2-Pi</title>
+<title>Headphone EQ · ADI-2-Pi</title>
 <link rel="icon" href="../icon.svg" type="image/svg+xml">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Headphone EQ Generator">
@@ -19,30 +19,16 @@
 <header class="site-top">
   <a class="site-brand" href="/">
     <img class="site-logo" src="../logo.svg" alt="" width="34" height="34">
-    <span><span class="site-title" id="site-name">ADI-2-Pi</span><span class="site-sub">Headphone EQ generator</span></span>
+    <span><span class="site-title" id="site-name">ADI-2-Pi</span><span class="site-sub"><span class="site-dot" id="conn-dot"></span><span id="conn-text">Connecting…</span></span></span>
   </a>
   <div class="site-actions">
+    <select id="setup-select" class="site-setup" aria-label="Load setup" disabled><option value="">Load setup…</option></select>
     <button type="button" class="site-icon" id="theme-btn" title="Light / dark" aria-label="Switch light or dark">
       <svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z"/></svg>
     </button>
   </div>
 </header>
-<nav class="site-tabs" id="site-tabs" aria-label="ADI-2-Pi">
-  <a class="site-tab" href="/#overview">Overview</a>
-  <a class="site-tab" href="/#line" data-ch="line">Line Out</a>
-  <a class="site-tab" href="/#ph12" data-ch="ph12">Phones 1/2</a>
-  <a class="site-tab" href="/#ph34" data-ch="ph34">Phones 3/4</a>
-  <a class="site-tab" href="/#in" data-ch="in">Input</a>
-  <a class="site-tab" href="/#eqpresets">EQ Presets</a>
-  <a class="site-tab" href="/#device">Device</a>
-  <a class="site-tab" href="/#routing">Pi Playback</a>
-  <a class="site-tab" href="/#bluetooth">Bluetooth</a>
-  <a class="site-tab" href="/#streaming">Streaming</a>
-  <a class="site-tab" href="/#state">State</a>
-  <a class="site-tab" href="/#automation">Scenes &amp; Actions</a>
-  <a class="site-tab" href="/eq/" aria-current="page">Headphone EQ</a>
-  <a class="site-tab" href="/#bridge">System</a>
-</nav>
+<nav class="site-tabs" id="site-tabs" aria-label="ADI-2-Pi"></nav>
 
 <div class="layout">
   <aside class="panel" aria-label="Settings">
@@ -135,7 +121,7 @@
         <label class="switch"><input type="checkbox" id="slowComp"><span></span></label>
         <label for="slowComp" class="switch-label">Compensate the DAC's Slow filter</label>
       </div>
-      <p class="why">For DA filter <em>Slow</em>. Uses one band as a treble shelf.</p>
+      <p class="why">For the DA filter Slow: one band becomes a treble shelf.</p>
       <div class="sub-fields" id="slow-fields">
         <div class="field inline">
           <label for="slowLossDb">Loss at 20 kHz</label>
@@ -159,7 +145,7 @@
         <label class="switch"><input type="checkbox" id="useBT"><span></span></label>
         <label for="useBT" class="switch-label">Also use Bass and Treble as EQ bands</label>
       </div>
-      <p class="hint">Requires <em>B/T Load with EQ</em>.</p>
+      <p class="hint">Needs “B/T Load with EQ” on the unit.</p>
       <div class="field inline">
         <label for="band1Type">Band 1 type</label>
         <select id="band1Type"><option value="peak">Peak</option><option value="lowshelf">Low shelf</option></select>
@@ -274,7 +260,8 @@
             <button type="button" id="dl-tm">Download .tmreq</button>
             <button type="button" id="cp-tm" class="ghost">Copy XML</button>
           </div>
-          <p class="hint">TotalMix FX: <em>Room EQ → Preset → Import</em>. Preamp is set as channel gain.</p>
+          <p class="hint">TotalMix FX: <em>Room EQ → Preset → Import</em></p>
+          <p class="hint">The preamp becomes the channel gain.</p>
         </div>
         <div class="export" hidden data-out="table">
           <h3>Text table</h3>
@@ -338,12 +325,14 @@
     </section>
 
     <footer class="foot">
-      <p>Measurements by oratory1990, collected in AutoEq (<span id="data-ref"></span>).</p>
+      <p><span>Measurements by oratory1990, collected in AutoEq</span> (<span id="data-ref"></span>)</p>
     </footer>
   </main>
 </div>
 <!--/APP-->
 <script src="../auth.js"></script>
+<script src="../i18n.js"></script>
+<script src="../tabs.js"></script>
 <script type="module" src="js/app.js"></script>
 </body>
 </html>

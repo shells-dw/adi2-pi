@@ -427,6 +427,8 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; color:
 .ctl.bad { color: var(--danger); }
 .ctl.ok { color: var(--on); }
 .ctl.warn { color: var(--warn); }
+.ctl.muted { color: var(--muted); }
+.hint.bad { color: var(--danger); }
 /* System updates: package list and log */
 details.osu { margin-top: 8px; }
 details.osu > summary { cursor: pointer; color: var(--accent); font-size: 12.5px; padding: 4px 0; }
