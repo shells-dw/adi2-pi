@@ -724,6 +724,7 @@
       vArc.setAttribute('d', arc(48, A0, a));
       tick.setAttribute('transform', `rotate(${a} 60 60)`);
       num.textContent = db.toFixed(1);
+      num.classList.toggle('long', num.textContent.length > 5); // -114.5
       knob.setAttribute('aria-valuenow', db);
       knob.setAttribute('aria-valuetext', `${db.toFixed(1)} dB`);
     });
