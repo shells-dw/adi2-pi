@@ -123,7 +123,7 @@ const ups = args.mock
   ? new Ups({ getSettings: () => settings.get(), log, devPath: __filename, powerOff: async () => log.info('ups: (simulated) poweroff'), run: mockUpsRun() })
   : new Ups({ getSettings: () => settings.get(), log });
 // update check (off by default): GitHub's latest release, notification only
-const updates = new Updates({ settings, version, log });
+const updates = new Updates({ settings, version, log, ...(args.mock ? { fetch: mockReleaseFetch } : {}) });
 const mqtt = new MqttBridge({ dev, settings, log, automation, version, ups, updates, nowPlaying });
 // install from a file: a signed release uploaded through the web page; simulated with --mock
 const selfUpdate = args.mock
@@ -141,10 +141,16 @@ const inputPriority = new InputPriority({ dev, settings, log });
 const trigger = args.mock
   ? new Trigger({ getSettings: () => settings.get(), getDevice: () => dev.info(), log, model: 'Raspberry Pi 4 Model B (simulated)', powerOff: async () => log.info('trigger: (simulated) poweroff'),
     run: async (cmd) => (cmd === 'gpiodetect' ? { code: 0, out: 'gpiochip0 [pinctrl-bcm2711] (58 lines)\n' } : cmd === 'gpioget' ? { code: 0, out: 'gpioget (libgpiod) v1.6.3\n0\n' } : { code: 1, out: '' }),
-    packagesBusy: () => osUpdates.busy(), updatesPending: () => osUpdates.pendingAfterStart() })
+    packagesBusy: () => osUpdates.busy() || selfUpdate.busy(), updatesPending: () => osUpdates.pendingAfterStart() })
   : new Trigger({ getSettings: () => settings.get(), getDevice: () => dev.info(), log,
-    packagesBusy: () => packagesBusy() || osUpdates.busy(), updatesPending: () => osUpdates.pendingAfterStart() });
+    packagesBusy: () => packagesBusy() || osUpdates.busy() || selfUpdate.busy(), updatesPending: () => osUpdates.pendingAfterStart() });
 settings.on('change', () => trigger.apply());
+// "Install automatically": a newer signed release found by the update check is installed when the
+// Pi isn't playing (nothing playing into the ADI-2, no Bluetooth headphones connected)
+updates.on('found', (latest) => selfUpdate.autoInstall(latest, {
+  enabled: () => !!(settings.get().updates || {}).auto,
+  playing: () => { const a = audio && audio.status(); return !!(a && a.available && ((a.sources || []).some((x) => x.playing) || (a.outputs || []).length)); },
+}));
 const { server, wss } = createServer({ dev, settings, version, log, allowOrigins: args.allowOrigins, dataDir, bt, audio, receivers, autoSource, trigger, automation, streamVolume, restore, mqtt, ups, updates, osUpdates, selfUpdate, nowPlaying, inputPriority });
 
 server.on('error', (e) => {
@@ -201,6 +207,15 @@ function mockUpsRun() {
     [regs[0x24], regs[0x25]] = w(83); [regs[0x26], regs[0x27]] = w(4150); [regs[0x28], regs[0x29]] = w(mains ? 0 : 214); [regs[0x2a], regs[0x2b]] = w(mains ? 38 : 0);
     return { code: 0, out: regs.slice(reg, reg + n).map((x) => `0x${x.toString(16).padStart(2, '0')}`).join(' ') + '\n', err: '' };
   };
+}
+
+/** Simulated GitHub for --mock: a release one minor version up, with its signed files. */
+async function mockReleaseFetch() {
+  const [ma, mi] = version.split('.').map(Number);
+  const v = `${ma}.${mi + 1}.0`;
+  const dl = `https://github.com/shells-dw/adi2-pi/releases/download/v${v}/`;
+  return { status: 200, ok: true, json: async () => ({ tag_name: `v${v}`, name: `ADI-2-Pi ${v}`, html_url: `https://github.com/shells-dw/adi2-pi/releases/tag/v${v}`, published_at: new Date().toISOString(),
+    assets: [{ name: `adi2-pi-${v}.tar.gz`, browser_download_url: `${dl}adi2-pi-${v}.tar.gz`, size: 2900000 }, { name: `adi2-pi-${v}.tar.gz.sig`, browser_download_url: `${dl}adi2-pi-${v}.tar.gz.sig`, size: 120 }] }) };
 }
 
 /** Simulated apt for --mock: three updates (one of them Node.js); a check or an install takes 4 s. */

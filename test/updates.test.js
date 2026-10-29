@@ -44,7 +44,7 @@ test('off by default: no request; check now still works', async () => {
   assert.strictEqual(f.calls[0].url, API_URL);
   assert.match(f.calls[0].opts.headers['User-Agent'], /^adi2-pi\/1\.0\.0$/);
   assert.strictEqual(st.available, true);
-  assert.deepStrictEqual(st.latest, { version: '1.0.1', name: 'ADI-2-Pi 1.0.1', url: 'https://github.com/shells-dw/adi2-pi/releases/tag/v1.0.1', published: '2026-11-01T10:00:00Z' });
+  assert.deepStrictEqual(st.latest, { version: '1.0.1', name: 'ADI-2-Pi 1.0.1', url: 'https://github.com/shells-dw/adi2-pi/releases/tag/v1.0.1', published: '2026-11-01T10:00:00Z', files: null });
   // a second "check now" right away is refused
   await assert.rejects(u.check({ manual: true }), (e) => e.status === 429);
   u.stop();
@@ -88,4 +88,32 @@ test('no release yet, HTTP errors and network errors', async () => {
   st = await u.check();
   assert.match(st.error, /no version tag/);
   u.stop();
+});
+
+test('signed release files; automatic install needs the check', async () => {
+  const settings = new Settings(null, quiet);
+  const dl = 'https://github.com/shells-dw/adi2-pi/releases/download/v1.2.0/';
+  const f = fakeFetch({ status: 200, body: { tag_name: 'v1.2.0', html_url: 'https://github.com/shells-dw/adi2-pi/releases/tag/v1.2.0', assets: [
+    { name: 'adi2-pi-1.2.0.tar.gz', browser_download_url: `${dl}adi2-pi-1.2.0.tar.gz`, size: 2900000 },
+    { name: 'adi2-pi-1.2.0.tar.gz.sig', browser_download_url: `${dl}adi2-pi-1.2.0.tar.gz.sig`, size: 120 },
+    { name: 'adi2-pi-1.2.0.zip', browser_download_url: 'https://evil.example/adi2-pi-1.2.0.zip' },
+  ] } });
+  const u = new Updates({ settings, version: '1.1.0', log: quiet, fetch: f });
+  const found = [];
+  u.on('found', (l) => found.push(l.version));
+  const st = await u.check({ manual: true });
+  assert.deepStrictEqual(st.latest.files, { archive: `${dl}adi2-pi-1.2.0.tar.gz`, signature: `${dl}adi2-pi-1.2.0.tar.gz.sig`, size: 2900000 });
+  assert.deepStrictEqual(found, ['1.2.0']);
+  // a signature from somewhere else isn't used
+  const f2 = fakeFetch({ status: 200, body: { tag_name: 'v1.2.0', assets: [
+    { name: 'adi2-pi-1.2.0.tar.gz', browser_download_url: `${dl}adi2-pi-1.2.0.tar.gz` },
+    { name: 'adi2-pi-1.2.0.tar.gz.sig', browser_download_url: 'https://evil.example/x.sig' },
+  ] } });
+  assert.strictEqual((await new Updates({ settings, version: '1.1.0', log: quiet, fetch: f2 }).check({ manual: true })).latest.files, null);
+
+  assert.strictEqual(settings.get().updates.auto, false, 'off by default');
+  settings.update({ updates: { auto: true } });
+  assert.strictEqual(settings.get().updates.check, true, 'automatic install switches the check on');
+  settings.update({ updates: { check: false } });
+  assert.strictEqual(settings.get().updates.auto, false, 'no check, no automatic install');
 });

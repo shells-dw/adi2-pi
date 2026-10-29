@@ -882,5 +882,19 @@
   "Discard": "Verwerfen",
   "signature valid · {0}": "Signatur gültig · {0}",
   "signature valid": "Signatur gültig",
-  "Last installation": "Letzte Installation"
+  "Last installation": "Letzte Installation",
+  "asks GitHub once a day for the latest release": "fragt GitHub einmal täglich nach dem neuesten Release",
+  "Install updates automatically": "Updates automatisch installieren",
+  "Install new ADI-2-Pi releases automatically? They run as root on this Pi without asking first.": "Neue ADI-2-Pi-Releases automatisch installieren? Sie laufen dann ohne Rückfrage als root auf diesem Pi.",
+  "a newer signed release is downloaded and installed when nothing plays on the Pi": "ein neueres signiertes Release wird heruntergeladen und installiert, wenn auf dem Pi nichts spielt",
+  "Install {0}": "{0} installieren",
+  "Download ADI-2-Pi {0} from GitHub and install it? ADI-2-Pi restarts during the installation.": "ADI-2-Pi {0} von GitHub herunterladen und installieren? ADI-2-Pi startet während der Installation neu.",
+  "Downloading…": "Lade herunter…",
+  "Download and install": "Herunterladen und installieren",
+  "the automatic installation of this version failed – see below": "die automatische Installation dieser Version ist fehlgeschlagen – siehe unten",
+  "only installed if its signature is valid": "wird nur mit gültiger Signatur installiert",
+  "by hand": "von Hand",
+  "this release has no signature file": "dieses Release hat keine Signaturdatei",
+  "Download": "Download",
+  "Download and install does the same with the files from GitHub. Install updates automatically (off by default) does it by itself after the daily check, when nothing plays on the Pi – new releases then run as root on this Pi without asking. A version whose installation failed is not tried again by itself.": "„Herunterladen und installieren“ macht dasselbe mit den Dateien von GitHub. „Updates automatisch installieren“ (standardmäßig aus) macht es nach der täglichen Prüfung von selbst, wenn auf dem Pi nichts spielt – neue Releases laufen dann ohne Rückfrage als root auf diesem Pi. Eine Version, deren Installation fehlgeschlagen ist, wird nicht von selbst erneut versucht."
 }

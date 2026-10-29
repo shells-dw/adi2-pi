@@ -29,8 +29,8 @@ ADI-2/4 Pro SE / Pro EX). Runs on a Raspberry Pi connected to the unit by USB.
 - **Shutdown with the ADI-2 (optional):** shuts the Pi down when the ADI-2's USB connection
   disappears, or when its 12 V Trigger Out switches off (wired to GPIO3; Pi 4/3 also start again).
 - Works offline. Outgoing connections made by ADI-2-Pi itself: the optional headphone data
-  update, the optional update check, the MQTT server when MQTT is switched on, and apt's
-  package sources for system updates when asked for or switched on.
+  update, the optional update check and release download, the MQTT server when MQTT is switched
+  on, and apt's package sources for system updates when asked for or switched on.
 
 ## Requirements
 
@@ -305,7 +305,19 @@ release of ADI-2-Pi once a day; *Check now* asks once. A newer version is shown 
 with a link to its release page, and with MQTT as a Home Assistant update entity. The check
 downloads and installs nothing.
 
-To update, download the release from
+Ways to update – each one installs only a release whose signature matches the release key of the
+installed version:
+
+- **Download and install** (shown with a newer release): the Pi downloads
+  `adi2-pi-<version>.tar.gz` and its `.sig` from the GitHub release and installs them like a file
+  (below).
+- **Install updates automatically** (off by default; switches the daily check on): after a check
+  finds a newer release, the Pi installs it by itself once nothing plays on it (nothing playing
+  into the ADI-2, no Bluetooth headphones connected; otherwise it tries again every 30 minutes).
+  New releases then run as root on the Pi without asking. A version whose installation failed is
+  left to the user.
+
+Or download the release from
 [github.com/shells-dw/adi2-pi/releases](https://github.com/shells-dw/adi2-pi/releases), then either:
 
 - **Install from a file** (System → *ADI-2-Pi updates*): choose `adi2-pi-<version>.tar.gz` and

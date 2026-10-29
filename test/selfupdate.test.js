@@ -90,3 +90,44 @@ test('stage, discard, install through the root service', opts, async () => {
   assert.match(new SelfUpdate({ dataDir: dir, version, log: quiet, key: null, installed: true }).status().reason, /release key/);
   assert.match(new SelfUpdate({ dataDir: dir, version, log: quiet, key: publicKey, installed: false }).status().reason, /installer/);
 });
+
+test('download from GitHub and automatic install', opts, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'su-'));
+  const files = { archive: 'https://github.com/shells-dw/adi2-pi/releases/download/v9.0.0/adi2-pi-9.0.0.tar.gz', signature: 'https://github.com/shells-dw/adi2-pi/releases/download/v9.0.0/adi2-pi-9.0.0.tar.gz.sig' };
+  let sigText = sigOf(archive);
+  const got = [];
+  const fakeFetch = async (url) => {
+    got.push(url);
+    const body = url.endsWith('.sig') ? Buffer.from(sigText) : archive;
+    return { ok: true, status: 200, headers: { get: () => String(body.length) }, arrayBuffer: async () => body };
+  };
+  const started = [];
+  const fakeRun = async (cmd, args) => { if (args[0] === 'start') started.push(args[2]); return { code: 0, out: 'ActiveState=inactive\nResult=success\n' }; };
+  const su = new SelfUpdate({ dataDir: dir, version: '1.0.0', log: quiet, key: publicKey, installed: true, run: fakeRun, fetch: fakeFetch, pollMs: 10 });
+
+  await su.installRelease(files);
+  assert.deepStrictEqual(got, [files.signature, files.archive]);
+  assert.deepStrictEqual(started, ['adi2-pi-self-update.service']);
+  su.stop(); su.state = 'idle';
+
+  // a download whose signature doesn't match is not installed
+  sigText = sigOf(Buffer.from('something else'));
+  await assert.rejects(su.installRelease(files), /signature does not match/);
+  assert.strictEqual(started.length, 1);
+  assert.match(su.status().error, /signature does not match/);
+  sigText = sigOf(archive);
+
+  // automatic: only newer versions, not while playing (tried again later), not a version that failed
+  const latest = { version: '9.0.0', files };
+  assert.strictEqual(su.autoInstall({ version: '1.0.0', files }), false, 'not newer');
+  assert.strictEqual(su.autoInstall(latest, { enabled: () => false }), false, 'switched off');
+  assert.strictEqual(su.autoInstall(latest, { playing: () => true }), false, 'the Pi plays');
+  assert.ok(su.autoTimer, 'tried again later');
+  assert.strictEqual(su.autoInstall(latest), true);
+  await until(() => started.length === 2);
+  su.stop(); su.state = 'idle';
+  su._saveAuto({ tried: '9.0.0', failed: '9.0.0' });
+  assert.strictEqual(su.autoInstall(latest), false, 'failed before: left to the user');
+  assert.strictEqual(su.status().autoFailed, '9.0.0');
+  assert.strictEqual(new SelfUpdate({ dataDir: dir, version: '1.0.0', log: quiet, key: publicKey, installed: true }).status().autoFailed, '9.0.0', 'kept across a restart');
+});

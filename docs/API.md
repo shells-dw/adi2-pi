@@ -176,6 +176,8 @@ before (routine re-reads left out), `what` in plain words such as `store EQ pres
 { "t": "ups", "cancel": true }                                     // stop a running UPS countdown
 { "t": "updates", "check": true }                                  // daily update check on / off
 { "t": "updates", "now": true }                                    // ask GitHub once now; answers when done (429 within 30 s of the last one)
+{ "t": "updates", "install": true }                                // download the newer release's signed files from GitHub and install them (see Install from a file)
+{ "t": "updates", "auto": true }                                   // install newer releases by themselves (switches check on; check off switches it off)
 { "t": "osUpdates", "mode": "notify" }                             // system updates: off | notify | install
 { "t": "osUpdates", "action": "check" }                            // check | install: starts it, progress as osUpdates broadcasts (409 while one runs)
 { "t": "osUpdates", "action": "reboot" }                           // restart the Pi (409 while installing)
@@ -481,7 +483,7 @@ own Auto stays in USB mode while the Pi is connected).
   "inputPriority": { "enabled": false, "order": ["aes", "analog"], "outputs": { "line": true, "ph34": true }, "delaySec": 2 },   // see Input priority
   "trigger": { "enabled": false, "delaySec": 10, "source": "usb", "pin": 3 },
   "ups": { "shutdown": true, "delaySec": 60, "lowPct": 10 },
-  "updates": { "check": false },                     // daily update check (GitHub)
+  "updates": { "check": false, "auto": false },      // daily update check (GitHub); auto = install newer releases by themselves
   "osUpdates": { "mode": "off" },                    // system updates: off | notify | install
   "streamVolume": { "enabled": false, "outputs": ["line"], "minDb": -60, "maxDb": -10, "airplay": true, "spotify": true },
   "startVolume": { "enabled": false, "levels": { "line": null, "ph12": -30, "ph34": -30 } },
@@ -527,10 +529,12 @@ Readings every 5 s. `ups` broadcasts are sent when a value changes visibly (volt
 ```jsonc
 {
   "check": false,                     // daily check on (settings.updates.check)
+  "auto": false,                      // install newer releases by themselves (settings.updates.auto)
   "current": "1.0.0",                 // installed version
   "checking": false,
   "lastCheck": 1793000000000,         // ms, null before the first check
-  "latest": { "version": "1.0.1", "name": "ADI-2-Pi 1.0.1", "url": "https://github.com/shells-dw/adi2-pi/releases/tag/v1.0.1", "published": "2026-11-01T10:00:00Z" },
+  "latest": { "version": "1.0.1", "name": "ADI-2-Pi 1.0.1", "url": "https://github.com/shells-dw/adi2-pi/releases/tag/v1.0.1", "published": "2026-11-01T10:00:00Z",
+              "files": { "archive": "https://github.com/…/adi2-pi-1.0.1.tar.gz", "signature": "https://github.com/…/adi2-pi-1.0.1.tar.gz.sig", "size": 2900000 } }, // files: null without both
   "available": true,                  // latest is newer than current
   "error": null,                      // text of the last failed check
   "releasesUrl": "https://github.com/shells-dw/adi2-pi/releases"
@@ -580,9 +584,11 @@ release is published. With `check` off, no request is made unless `now` is sent.
 {
   "available": true, "reason": null,   // false without lib/release-key.pub or the root service
   "current": "1.1.1",
-  "state": "idle",                     // idle | installing
+  "state": "idle",                     // idle | downloading | installing
   "staged": { "version": "1.1.2", "size": 2885883, "at": 1793000000000, "newer": true, "same": false },
-  "lastRun": { "at": 1793000000000, "ok": false, "log": ["…last lines of self-update.log"] }
+  "lastRun": { "at": 1793000000000, "ok": false, "log": ["…last lines of self-update.log"] },
+  "error": null,                       // last download problem
+  "autoFailed": null                   // version whose automatic installation failed (not tried again by itself)
 }
 ```
 
@@ -593,6 +599,9 @@ release is published. With `check` off, no request is made unless `now` is sent.
   ADI-2-Pi; afterwards `lastRun` comes from systemd.
 - Signature file: `adi2-pi-<version>.tar.gz.sig`, base64 Ed25519 signature of the archive's bytes
   (`node tools/release.js build`).
+- From GitHub (`{ t: 'updates', install: true }`, or `settings.updates.auto` after a check): the
+  release's two files are downloaded from `github.com/shells-dw/adi2-pi/releases/download/` and
+  go through the same steps. Automatic installs wait while the Pi plays (30-minute retries).
 
 ## Volume from the sender
 

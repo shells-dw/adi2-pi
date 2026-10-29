@@ -2654,16 +2654,33 @@
       if (!u) { body.replaceChildren(h('p', { class: 'hint' }, tr('Waiting for ADI-2-Pi…'))); return; }
       const row = (label, value, hint, cls = '') => h('div', { class: 'row' }, h('div', { class: 'lab' }, label, hint ? h('small', null, hint) : null), h('div', { class: `ctl ${cls}` }, value));
       const sw = h('button', { class: 'sw', role: 'switch', 'aria-checked': u.check ? 'true' : 'false', 'aria-label': tr('Check for updates daily'), onclick: () => act({ check: !u.check }) });
+      const su = S.selfUpdate;
+      const canInstall = !!(su && su.available);
       const rows = [
-        row(tr('Check for updates daily'), sw, tr('asks GitHub once a day for the latest release; nothing is downloaded or installed')),
-        row(tr('Installed'), u.current, null, 'num'),
+        row(tr('Check for updates daily'), sw, u.auto ? tr('asks GitHub once a day for the latest release') : tr('asks GitHub once a day for the latest release; nothing is downloaded or installed')),
       ];
+      if (canInstall) {
+        const autoSw = h('button', { class: 'sw', role: 'switch', 'aria-checked': u.auto ? 'true' : 'false', 'aria-label': tr('Install updates automatically'),
+          onclick: () => { if (u.auto || confirm(tr('Install new ADI-2-Pi releases automatically? They run as root on this Pi without asking first.'))) act({ auto: !u.auto }); } });
+        rows.push(row(tr('Install updates automatically'), autoSw, tr('a newer signed release is downloaded and installed when nothing plays on the Pi'), u.auto ? 'warn' : ''));
+      }
+      rows.push(row(tr('Installed'), u.current, null, 'num'));
       if (u.lastCheck) {
         rows.push(row(tr('Latest release'), u.latest
           ? h('a', { href: u.latest.url, target: '_blank', rel: 'noopener noreferrer' }, u.latest.version)
           : tr('none published yet'), u.latest && u.latest.published ? new Date(u.latest.published).toLocaleDateString() : null, 'num'));
         rows.push(row(tr('Status'), u.available ? tr('update available') : tr('up to date'), tr('checked {0}', [new Date(u.lastCheck).toLocaleString()]), u.available ? '' : 'ok'));
       }
+      if (u.available && u.latest && canInstall) {
+        const busy = su.state !== 'idle';
+        rows.push(u.latest.files
+          ? row(tr('Install {0}', [u.latest.version]),
+            h('button', { class: 'btn primary', disabled: busy, onclick: () => { if (confirm(tr('Download ADI-2-Pi {0} from GitHub and install it? ADI-2-Pi restarts during the installation.', [u.latest.version]))) act({ install: true }); } },
+              su.state === 'downloading' ? tr('Downloading…') : su.state === 'installing' ? tr('Installing…') : tr('Download and install')),
+            su.autoFailed === u.latest.version ? tr('the automatic installation of this version failed – see below') : tr('only installed if its signature is valid'))
+          : row(tr('Install {0}', [u.latest.version]), tr('by hand'), tr('this release has no signature file'), 'muted'));
+      }
+      if (canInstall && su.error && su.state === 'idle') rows.push(row(tr('Download'), su.error, null, 'bad'));
       if (u.error) rows.push(row(tr('Last check'), u.error, null, 'bad'));
       const now = h('button', { class: 'btn', disabled: u.checking, onclick: () => act({ now: true }) }, u.checking ? tr('Checking…') : tr('Check now'));
       body.replaceChildren(...rows,
@@ -2671,7 +2688,8 @@
         ...fileInstallRows(),
         h('p', { class: 'hint help' }, tr('To update: download the release from '), h('a', { href: u.releasesUrl, target: '_blank', rel: 'noopener noreferrer' }, tr('GitHub')),
           tr(' and install it here with “Install from a file” – or unpack it on the Pi and run sudo ./install.sh. Settings are kept.')),
-        h('p', { class: 'hint help' }, tr('Install from a file only accepts releases with a valid signature (the .sig file next to the archive on the release page). The Pi checks it once more before installing, then runs the release’s installer with the options of the last installation. ADI-2-Pi restarts during the installation.')));
+        h('p', { class: 'hint help' }, tr('Install from a file only accepts releases with a valid signature (the .sig file next to the archive on the release page). The Pi checks it once more before installing, then runs the release’s installer with the options of the last installation. ADI-2-Pi restarts during the installation.')),
+        h('p', { class: 'hint help' }, tr('Download and install does the same with the files from GitHub. Install updates automatically (off by default) does it by itself after the daily check, when nothing plays on the Pi – new releases then run as root on this Pi without asking. A version whose installation failed is not tried again by itself.')));
     }
     /** Install from a file: upload a release (.tar.gz) and its signature (.sig), then install it. */
     let uploading = false;
