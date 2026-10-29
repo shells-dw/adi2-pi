@@ -17,13 +17,15 @@ const { Audio } = require('../lib/audio');
 const { MockBluetooth, MockAudio, MockReceivers } = require('../lib/bt-mock');
 const { Receivers } = require('../lib/receivers');
 const { AutoSource } = require('../lib/autosource');
-const { Trigger } = require('../lib/trigger');
+const { InputPriority } = require('../lib/inputprio');
+const { Trigger, packagesBusy } = require('../lib/trigger');
 const { Automation } = require('../lib/automation');
 const { StreamVolume } = require('../lib/streamvol');
 const { Restore } = require('../lib/backup');
 const { MqttBridge } = require('../lib/mqtt-bridge');
 const { Ups } = require('../lib/ups');
 const { Updates } = require('../lib/updates');
+const { OsUpdates } = require('../lib/osupdates');
 const { NowPlaying } = require('../lib/nowplaying');
 const { version } = require('../package.json');
 
@@ -122,16 +124,23 @@ const ups = args.mock
 // update check (off by default): GitHub's latest release, notification only
 const updates = new Updates({ settings, version, log });
 const mqtt = new MqttBridge({ dev, settings, log, automation, version, ups, updates, nowPlaying });
+// system updates (apt) through two root services; simulated with --mock
+const osUpdates = args.mock
+  ? new OsUpdates({ settings, dataDir, log, installed: true, uptime: 30, run: mockAptRun(), kernel: () => null, restartSelf: () => log.info('os updates: (simulated) restart for the new Node.js') })
+  : new OsUpdates({ settings, dataDir, log });
 
 // while the Pi plays, the ADI-2's outputs switch to USB (and back afterwards)
 const autoSource = audio ? new AutoSource({ dev, audio, settings, log }) : null;
+const inputPriority = new InputPriority({ dev, settings, log });
 // shut down with the ADI-2 (USB connection, or Trigger Out wired to GPIO3); GPIO and poweroff simulated with --mock
 const trigger = args.mock
   ? new Trigger({ getSettings: () => settings.get(), getDevice: () => dev.info(), log, model: 'Raspberry Pi 4 Model B (simulated)', powerOff: async () => log.info('trigger: (simulated) poweroff'),
-    run: async (cmd) => (cmd === 'gpiodetect' ? { code: 0, out: 'gpiochip0 [pinctrl-bcm2711] (58 lines)\n' } : cmd === 'gpioget' ? { code: 0, out: 'gpioget (libgpiod) v1.6.3\n0\n' } : { code: 1, out: '' }) })
-  : new Trigger({ getSettings: () => settings.get(), getDevice: () => dev.info(), log });
+    run: async (cmd) => (cmd === 'gpiodetect' ? { code: 0, out: 'gpiochip0 [pinctrl-bcm2711] (58 lines)\n' } : cmd === 'gpioget' ? { code: 0, out: 'gpioget (libgpiod) v1.6.3\n0\n' } : { code: 1, out: '' }),
+    packagesBusy: () => osUpdates.busy(), updatesPending: () => osUpdates.pendingAfterStart() })
+  : new Trigger({ getSettings: () => settings.get(), getDevice: () => dev.info(), log,
+    packagesBusy: () => packagesBusy() || osUpdates.busy(), updatesPending: () => osUpdates.pendingAfterStart() });
 settings.on('change', () => trigger.apply());
-const { server, wss } = createServer({ dev, settings, version, log, allowOrigins: args.allowOrigins, dataDir, bt, audio, receivers, autoSource, trigger, automation, streamVolume, restore, mqtt, ups, updates, nowPlaying });
+const { server, wss } = createServer({ dev, settings, version, log, allowOrigins: args.allowOrigins, dataDir, bt, audio, receivers, autoSource, trigger, automation, streamVolume, restore, mqtt, ups, updates, osUpdates, nowPlaying, inputPriority });
 
 server.on('error', (e) => {
   if (e.code === 'EADDRINUSE') log.warn(`port ${port} is already in use – set another one with --port or in settings.json`);
@@ -148,10 +157,12 @@ server.listen(port, args.host, () => {
   if (audio) audio.start();
   if (receivers) receivers.start();
   if (autoSource) autoSource.start();
+  inputPriority.start();
   trigger.start();
   automation.start();
   ups.start();
   updates.start();
+  osUpdates.start();
   if (nowPlaying) nowPlaying.start();
   mqtt.start();
 });
@@ -186,16 +197,40 @@ function mockUpsRun() {
   };
 }
 
+/** Simulated apt for --mock: three updates (one of them Node.js); a check or an install takes 4 s. */
+function mockAptRun() {
+  let running = null; // { unit, until }
+  let installed = false;
+  return async (cmd, a) => {
+    if (cmd === 'systemctl' && a[0] === 'start') { running = { unit: a[a.length - 1], until: Date.now() + 4000 }; if (/upgrade/.test(running.unit)) installed = true; return { code: 0, out: '', err: '' }; }
+    if (cmd === 'systemctl' && a[0] === 'show') {
+      const busy = running && running.unit === a[a.length - 1] && Date.now() < running.until;
+      return { code: 0, out: a[2] === 'Result' ? 'success\n' : `${busy ? 'activating' : 'inactive'}\n`, err: '' };
+    }
+    if (cmd === 'systemctl' && a[0] === 'reboot') { log.info('os updates: (simulated) reboot'); return { code: 0, out: '', err: '' }; }
+    if (cmd === 'apt-get') {
+      return { code: 0, err: '', out: installed ? 'NOTE: This is only a simulation!\n' : [
+        'Inst libc6 [2.41-12] (2.41-12+deb13u1 Debian:13.2/stable, Debian-Security:13/stable-security [arm64])',
+        'Inst nodejs [24.10.0-1nodesource1] (24.11.1-1nodesource1 Node Source:nodistro [arm64])',
+        'Inst linux-image-rpi-v8 [1:6.12.47-1+rpt1] (1:6.12.62-1+rpt1 Raspberry Pi Foundation:stable [arm64])',
+      ].join('\n') + '\n' };
+    }
+    return { code: 0, out: `${process.version}\n`, err: '' };
+  };
+}
+
 function shutdown() {
   settings.flush();
   if (bt) bt.stop();
   if (audio) audio.stop();
   if (receivers) receivers.stop();
   if (autoSource) autoSource.stop();
+  inputPriority.stop();
   trigger.stop();
   automation.stop();
   ups.stop();
   updates.stop();
+  osUpdates.stop();
   if (nowPlaying) nowPlaying.stop();
   mqtt.stop();
   wss.close();

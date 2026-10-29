@@ -1,0 +1,15 @@
+# installed by adi2-pi: refreshes the package lists for System → System updates.
+# ADI-2-Pi may start this unit (polkit rule 50-adi2-pi.rules); it runs as root.
+[Unit]
+Description=ADI-2-Pi: refresh the package lists
+Documentation=file:///opt/adi2-pi/README.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/apt-get -q -o DPkg::Lock::Timeout=600 update
+Nice=10
+LogsDirectory=adi2-pi
+StandardOutput=truncate:/var/log/adi2-pi/os-check.log
+StandardError=inherit

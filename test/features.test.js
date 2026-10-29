@@ -355,6 +355,89 @@ test('actions: end time of a time action, digital input signal, Pi idle', async 
   } finally { a.stop(); dev.stop(); }
 });
 
+test('action delay: applies later, cancelled by the opposite event, kept per source', async () => {
+  const { mock, dev, settings } = await unit();
+  mock._status = () => {};
+  const status = (io1) => mock._send(require('../lib/protocol').frame(mock.id, 0x07, [0x05, (io1 >> 21) & 0x7f, (io1 >> 14) & 0x7f, (io1 >> 7) & 0x7f, io1 & 0x7f, 0, 0, 0, 0, 1, 2, 0, 0, 0]));
+  const AES = (1 << 23) | (1 << 21);
+  const audio = Object.assign(new EventEmitter(), { st: { sources: [] }, status() { return this.st; } });
+  const play = (...r) => { audio.st = { sources: r.map((receiver) => ({ kind: 'receiver', receiver, playing: true })) }; audio.emit('status'); };
+  const a = new Automation({ dev, settings, audio, log: quiet, tickMs: 50 });
+  a.start();
+  try {
+    const mk = (name, v) => settings.update({ scenes: [...settings.get().scenes, { name, items: [{ ch: 'ph34', id: 'vol', value: v }] }] }).scenes.at(-1).id;
+    const lost = mk('lost', -41), stopped = mk('stopped', -42);
+    assert.throws(() => settings.update({ rules: [{ when: { type: 'unit-on' }, scene: lost, delaySec: 1.5 }] }), /whole seconds/);
+    assert.throws(() => settings.update({ rules: [{ when: { type: 'unit-on' }, scene: lost, delaySec: 90000 }] }), /0…86400/);
+    settings.update({ rules: [
+      { when: { type: 'input-lost', input: 'aes' }, scene: lost, delaySec: 1 },
+      { when: { type: 'play-stop', source: 'airplay' }, scene: stopped, delaySec: 1 },
+    ] });
+    assert.strictEqual(settings.get().rules[0].delaySec, 1);
+    dev.set([{ ch: 'ph34', id: 'vol', value: -10 }]);
+    status(AES); await sleep(50);
+    // lost, back within the delay: nothing happens
+    status(0); await sleep(300);
+    assert.strictEqual(a.view().waiting.length, 1, 'waiting');
+    status(AES); await sleep(1100);
+    assert.strictEqual(disp(dev, 'ph34', 'vol'), -10, 'cancelled by the signal coming back');
+    assert.strictEqual(a.view().waiting.length, 0);
+    // lost for longer than the delay: applied once the delay has passed
+    status(0); await sleep(400);
+    assert.strictEqual(disp(dev, 'ph34', 'vol'), -10, 'not yet');
+    await until(() => disp(dev, 'ph34', 'vol') === -41, 2000, 'applied after the delay');
+    // playback: another source starting doesn't cancel "AirPlay stops"; AirPlay starting again does
+    dev.set([{ ch: 'ph34', id: 'vol', value: -10 }]);
+    play('airplay'); play(); await sleep(100); play('spotify'); await sleep(200);
+    assert.strictEqual(a.view().waiting.length, 1, 'still waiting despite Spotify');
+    play('spotify', 'airplay'); await sleep(1100);
+    assert.strictEqual(disp(dev, 'ph34', 'vol'), -10, 'cancelled by AirPlay playing again');
+    play('spotify'); await until(() => disp(dev, 'ph34', 'vol') === -42, 2500, 'AirPlay stopped for good');
+  } finally { a.stop(); dev.stop(); }
+});
+
+test('input priority: first input with a signal, delay, manual choice kept, outputs held on USB updated', async () => {
+  const { mock, dev, settings } = await unit();
+  const { InputPriority } = require('../lib/inputprio');
+  mock._status = () => {}; // the test sends the status itself
+  const status = (io1) => mock._send(require('../lib/protocol').frame(mock.id, 0x07, [0x05, (io1 >> 21) & 0x7f, (io1 >> 14) & 0x7f, (io1 >> 7) & 0x7f, io1 & 0x7f, 0, 0, 0, 0, 1, 2, 0, 0, 0]));
+  const AES = (1 << 23) | (1 << 21);
+  const src = (o) => (cat.valueNames(cat.sections.output.src, 'pro', cat.channelByKey[o]) || [])[dev.get(cat.resolve(o, 'src').addr, cat.resolve(o, 'src').idx)];
+  const ip = new InputPriority({ dev, settings, log: quiet });
+  ip.start();
+  try {
+    const line0 = src('line'), ph340 = src('ph34');
+    status(0);
+    await sleep(30);
+    assert.strictEqual(src('line'), line0, 'off by default: nothing changes');
+    assert.throws(() => settings.update({ inputPriority: { order: ['aes', 'aes'] } }), /each input once/);
+    assert.throws(() => settings.update({ inputPriority: { order: ['hdmi'] } }), /inputs are/);
+    settings.update({ inputPriority: { enabled: true, order: ['aes', 'analog'], outputs: { line: true, ph34: false }, delaySec: 0.5 } });
+    await until(() => src('line') === 'Analog', 2000, 'no AES: Analog');
+    assert.strictEqual(src('ph34'), ph340, 'Phones 3/4 not chosen: left alone');
+    status(AES);
+    await sleep(200);
+    assert.strictEqual(src('line'), 'Analog', 'waits for the delay');
+    await until(() => src('line') === 'AES', 2000, 'AES back: AES');
+    assert.strictEqual(ip.view().current, 'aes');
+    // a short drop (shorter than the delay) changes nothing
+    status(0); await sleep(150); status(AES); await sleep(700);
+    assert.strictEqual(src('line'), 'AES', 'brief drop ignored');
+    // picked by hand: stays until the signal changes
+    dev.set([{ ch: 'line', id: 'src', value: 2 }]);
+    await sleep(700);
+    assert.strictEqual(src('line'), 'SPDIF', 'manual choice kept');
+    status(0);
+    await until(() => src('line') === 'Analog', 2000, 'AES lost: Analog again');
+    // while the Pi plays (output held on USB), only the return target changes
+    dev.set([{ ch: 'line', id: 'src', value: 4 }], { origin: 'auto' });
+    settings.update({ routing: { held: { line: 3 } } });
+    status(AES);
+    await until(() => settings.get().routing.held.line === 1, 2000, 'held source updated to AES');
+    assert.strictEqual(src('line'), 'USB 1/2', 'playback on USB not interrupted');
+  } finally { ip.stop(); dev.stop(); }
+});
+
 /** A tiny MQTT broker for one client: records publishes, can send messages to it. */
 function fakeBroker() {
   const b = Object.assign(new EventEmitter(), { retained: new Map(), subs: [], sock: null, connect: null });

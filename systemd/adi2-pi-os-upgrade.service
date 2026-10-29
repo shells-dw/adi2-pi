@@ -1,0 +1,19 @@
+# installed by adi2-pi: installs all available system updates (apt full-upgrade) for
+# System → System updates. ADI-2-Pi may start this unit (polkit rule 50-adi2-pi.rules); it runs
+# as root and blocks shutdowns and reboots while it runs.
+[Unit]
+Description=ADI-2-Pi: install system updates
+Documentation=file:///opt/adi2-pi/README.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemd-inhibit --what=shutdown:sleep --who=ADI-2-Pi --why="Installing system updates" --mode=block /bin/sh /opt/adi2-pi/lib/os-upgrade.sh
+Nice=10
+LogsDirectory=adi2-pi
+StandardOutput=truncate:/var/log/adi2-pi/os-upgrade.log
+StandardError=inherit
+# a shutdown while it runs: no signal to dpkg, give it up to 15 minutes to finish
+KillSignal=SIGCONT
+TimeoutStopSec=900

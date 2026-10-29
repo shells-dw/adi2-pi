@@ -7,7 +7,9 @@ PURGE=0
 [ "$(id -u)" -eq 0 ] || { echo "please run with sudo" >&2; exit 1; }
 
 systemctl disable --now adi2-pi adi2-pi-audio >/dev/null 2>&1 || true
-rm -f /etc/systemd/system/adi2-pi.service /etc/systemd/system/adi2-pi-audio.service
+rm -f /etc/systemd/system/adi2-pi.service /etc/systemd/system/adi2-pi-audio.service \
+      /etc/systemd/system/adi2-pi-os-check.service /etc/systemd/system/adi2-pi-os-upgrade.service
+rm -rf /var/log/adi2-pi
 # give login sessions Bluetooth audio and the ADI-2 back
 rm -f /etc/wireplumber/main.lua.d/51-adi2-pi-sessions.lua /etc/wireplumber/bluetooth.lua.d/51-adi2-pi-sessions.lua \
       /etc/wireplumber/wireplumber.conf.d/51-adi2-pi-sessions.conf

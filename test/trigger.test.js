@@ -136,3 +136,129 @@ test('trigger on another GPIO: internal pull-up, no wake', async () => {
   }
   assert.throws(() => new Settings(null, quiet).update({ trigger: { pin: 2 } }), /GPIO must be/);
 });
+
+test('started with the ADI-2 off: shuts down after atStartSec, only when started with the Pi', async () => {
+  const settings = new Settings(null, quiet);
+  assert.strictEqual(settings.get().trigger.atStartSec, 0, 'default: stays on');
+  const g = fakeGpio({ level: 1 }); // ADI-2 in standby
+  let off = 0;
+  const make = (uptime) => new Trigger({ getSettings: () => settings.get(), log: quiet, run: g.run, powerOff: async () => { off++; }, model: 'Raspberry Pi 4 Model B Rev 1.5', pollMs: 20, uptime, packagesBusy: () => false });
+  settings.update({ trigger: { enabled: true, source: 'gpio', delaySec: 10, atStartSec: 900 } });
+  const t = make(40);
+  t.start();
+  try {
+    await until(() => t.status().shutdownAt);
+    const s = t.status();
+    assert.strictEqual(s.atStart, true);
+    assert.strictEqual(s.armed, false);
+    assert.ok(Math.abs(s.shutdownAt - (t.watchFrom + 900000)) < 50, 'counts from the start');
+    // switched on in time: normal behaviour from then on
+    g.level = 0;
+    await until(() => t.status().armed && !t.status().shutdownAt);
+    assert.strictEqual(t.status().atStart, false);
+    g.level = 1;
+    await until(() => t.status().shutdownAt);
+    assert.strictEqual(t.status().atStart, false, 'normal countdown after the ADI-2 was on');
+    t.cancel();
+    await sleep(80);
+    assert.strictEqual(t.status().shutdownAt, null, 'a cancel isn\'t followed by the start countdown');
+
+    // a new start that runs out
+    t.stop();
+    const t2 = make(40);
+    t2.start();
+    await until(() => t2.status().shutdownAt);
+    t2.watchFrom -= 901000; t2.offSince -= 11000; t2.shutdownAt = null; // time passes
+    await until(() => off === 1);
+    t2.stop();
+
+    // the service restarted long after boot: stays on
+    const t3 = make(5000);
+    t3.start();
+    await until(() => t3.status().adiOn === false);
+    await sleep(80);
+    assert.strictEqual(t3.status().shutdownAt, null);
+    t3.stop();
+    assert.throws(() => settings.update({ trigger: { atStartSec: 60 } }), /atStartSec/);
+  } finally { t.stop(); }
+});
+
+test('a running package update postpones the shutdown', async () => {
+  const settings = new Settings(null, quiet);
+  const g = fakeGpio({ level: 0 });
+  let off = 0; let busy = true;
+  const t = new Trigger({ getSettings: () => settings.get(), log: quiet, run: g.run, powerOff: async () => { off++; }, model: 'Raspberry Pi 4 Model B Rev 1.5', pollMs: 20, uptime: 9999, packagesBusy: () => busy });
+  settings.update({ trigger: { enabled: true, source: 'gpio', delaySec: 10 } });
+  t.start();
+  try {
+    await until(() => t.status().armed);
+    g.level = 1;
+    await until(() => t.status().shutdownAt);
+    t.offSince -= 11000;
+    await until(() => t.status().waitingForUpdates);
+    await sleep(80);
+    assert.strictEqual(off, 0, 'waits while dpkg/apt runs');
+    busy = false;
+    await until(() => off === 1);
+    assert.strictEqual(t.status().waitingForUpdates, false);
+  } finally { t.stop(); }
+});
+
+test('the start shutdown waits for the system update due after the start', async () => {
+  const settings = new Settings(null, quiet);
+  const g = fakeGpio({ level: 1 });
+  let off = 0; let pending = true;
+  const t = new Trigger({ getSettings: () => settings.get(), log: quiet, run: g.run, powerOff: async () => { off++; }, model: 'Raspberry Pi 4 Model B Rev 1.5', pollMs: 20, uptime: 30, packagesBusy: () => false, updatesPending: () => pending });
+  settings.update({ trigger: { enabled: true, source: 'gpio', delaySec: 10, atStartSec: 300 } });
+  t.start();
+  try {
+    await until(() => t.status().shutdownAt);
+    t.watchFrom -= 301000; t.offSince -= 11000;
+    await until(() => t.status().waitingForUpdates);
+    await sleep(80);
+    assert.strictEqual(off, 0);
+    pending = false;
+    await until(() => off === 1);
+  } finally { t.stop(); }
+});
+
+test('wiring: GPIO3 low while the ADI-2 answers over USB = trigger found; USB on overrides a silent GPIO', async () => {
+  const settings = new Settings(null, quiet);
+  const g = fakeGpio({ level: 0 });
+  const dev = { connected: true, answering: false };
+  let off = 0;
+  const t = new Trigger({ getSettings: () => settings.get(), getDevice: () => dev, log: quiet, run: g.run, powerOff: async () => { off++; }, model: 'Raspberry Pi 4 Model B Rev 1.5', pollMs: 20, probeMs: 20, uptime: 9999, packagesBusy: () => false });
+  // trigger switched off: GPIO3 is looked at anyway, once the ADI-2 answers over USB
+  t.start();
+  try {
+    await sleep(60);
+    assert.strictEqual(t.status().detected, false, 'not while the ADI-2 is silent');
+    settings.update({ trigger: { delaySec: 30 } }); t.apply(); // other settings changes don't stop it
+    dev.answering = true;
+    await until(() => t.status().detected);
+    assert.ok(g.calls.includes('gpioget gpiochip0 3'));
+
+    // on GPIO3, wire comes off while the ADI-2 stays on: no shutdown, noSignal after a while
+    settings.update({ trigger: { enabled: true, source: 'gpio', delaySec: 10 } }); t.apply();
+    await until(() => t.status().armed);
+    g.level = 1;
+    t.usbOnSince = Date.now() - 11000;
+    await until(() => t.status().noSignal);
+    assert.strictEqual(t.status().adiOn, true, 'USB says on');
+    assert.strictEqual(t.status().shutdownAt, null);
+    // the ADI-2 goes to standby: USB silent too → countdown
+    dev.answering = false;
+    await until(() => t.status().shutdownAt);
+    assert.strictEqual(t.status().noSignal, false);
+    assert.strictEqual(off, 0);
+  } finally { t.stop(); }
+
+  // not a Pi: no probing, no errors shown
+  const none = new Trigger({ getSettings: () => new Settings(null, quiet).get(), getDevice: () => dev, log: quiet, run: async () => ({ code: 1, out: '', err: 'not found' }), powerOff: async () => {}, model: '', pollMs: 20 });
+  dev.answering = true;
+  none.start();
+  await sleep(60);
+  assert.strictEqual(none.status().detected, false);
+  assert.strictEqual(none.status().reason, null);
+  none.stop();
+});

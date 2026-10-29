@@ -17,10 +17,15 @@
 #   --with-spotify      Spotify Connect: adds raspotify's apt repository (librespot)
 #   --with-roon         Roon Bridge: downloads and runs Roon's own installer
 #   --journal-ram       keep the system log in RAM only (less SD card writes; logs are lost on reboot)
-#   --with-ups          switch I²C on and set up a Waveshare UPS HAT even if the ADI-2 trigger uses GPIO3
-#   --no-ups            don't look for a UPS HAT
+#   --with-ups          switch I²C on and look for a Waveshare UPS HAT; kept on when one answers
+#                       (I²C uses GPIO3, so the ADI-2 trigger then has to use another GPIO).
+#                       Without it, only an I²C bus that is on already is looked at.
+#   --no-ups            don't look for a UPS HAT at all
 #   --system-node       Node.js from Raspberry Pi OS (Trixie: 20, Bookworm: 18) instead of Node.js 24 LTS
 #                       from NodeSource's apt repository; removes that repository if it was added before
+#   --auto-updates      install all system updates (apt full-upgrade) 5 minutes after each start of
+#                       the Pi, then every 24 hours – same as System → System updates → Install automatically
+#   --no-auto-updates   switch that off again (updates only when asked for on the System tab)
 #   -y, --yes           don't ask anything (scripted installs): a taken port 80 becomes 8080
 set -euo pipefail
 
@@ -42,6 +47,7 @@ WITH_SPOTIFY=0
 WITH_ROON=0
 UPS_MODE=auto
 SYSTEM_NODE=0
+AUTO_UPD=""   # on | off | empty: leave as it is
 while [ $# -gt 0 ]; do
   case "$1" in
     --port) [ $# -ge 2 ] || { echo "--port needs a number" >&2; exit 2; }; PORT="$2"; shift 2 ;;
@@ -56,8 +62,10 @@ while [ $# -gt 0 ]; do
     --with-ups) UPS_MODE=on; shift ;;
     --no-ups) UPS_MODE=off; shift ;;
     --system-node) SYSTEM_NODE=1; shift ;;
+    --auto-updates) AUTO_UPD=on; shift ;;
+    --no-auto-updates) AUTO_UPD=off; shift ;;
     -y|--yes) ASSUME_YES=1; shift ;;
-    -h|--help) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -149,7 +157,7 @@ else
 fi
 
 # the steps this run takes
-TOTAL=5
+TOTAL=4
 [ "$AUDIO" -eq 1 ] && TOTAL=$((TOTAL + 1))
 [ "$STREAMING" -eq 1 ] && TOTAL=$((TOTAL + 1 + WITH_AP2 + WITH_SPOTIFY + WITH_ROON))
 
@@ -269,6 +277,13 @@ polkit.addRule(function (action, subject) {
       action.id == "org.freedesktop.login1.power-off-multiple-sessions" ||
       action.id == "org.freedesktop.login1.power-off-ignore-inhibit")) return polkit.Result.YES;
 });
+// System → System updates: restart the Pi, and start the two update services – nothing else
+polkit.addRule(function (action, subject) {
+  if (subject.user != "adi2pi") return;
+  if (action.id == "org.freedesktop.login1.reboot" || action.id == "org.freedesktop.login1.reboot-multiple-sessions") return polkit.Result.YES;
+  if (action.id == "org.freedesktop.systemd1.manage-units" && action.lookup("verb") == "start" &&
+      (action.lookup("unit") == "adi2-pi-os-check.service" || action.lookup("unit") == "adi2-pi-os-upgrade.service")) return polkit.Result.YES;
+});
 EOF3
 fi
 if [ "$AUDIO" -eq 1 ]; then
@@ -282,8 +297,12 @@ cp -r "$SRC/bin" "$SRC/lib" "$SRC/web" "$SRC/audio" "$DEST/"
 cp "$SRC/package.json" "$SRC/README.md" "$DEST/"
 [ -d "$SRC/docs" ] && cp -r "$SRC/docs" "$DEST/"
 cp "$SRC/uninstall.sh" "$DEST/"
-chmod 0755 "$DEST/bin/adi2-pi.js" "$DEST/bin/adi2-pi-hook.js" "$DEST/uninstall.sh" "$DEST/audio/run-audio.sh" "$DEST/lib/bt-helper.py"
+chmod 0755 "$DEST/bin/adi2-pi.js" "$DEST/bin/adi2-pi-hook.js" "$DEST/uninstall.sh" "$DEST/audio/run-audio.sh" "$DEST/lib/bt-helper.py" "$DEST/lib/os-upgrade.sh"
 chown -R root:root "$DEST"
+# System → System updates: two root services ADI-2-Pi may start (polkit rule above); their output in /var/log/adi2-pi
+install -d -m 0755 /var/log/adi2-pi
+install -m 0644 "$SRC/systemd/adi2-pi-os-check.service" /etc/systemd/system/adi2-pi-os-check.service
+install -m 0644 "$SRC/systemd/adi2-pi-os-upgrade.service" /etc/systemd/system/adi2-pi-os-upgrade.service
 
 # ---------------------------------------------------------------- settings (port)
 install -d -m 0750 -o "$SVC_USER" -g "$SVC_USER" "$DATA"
@@ -293,9 +312,20 @@ node -e '
   let s = {}; try { s = JSON.parse(fs.readFileSync(f, "utf8")); } catch {}
   if (s.port !== port) { s.port = port; fs.writeFileSync(f + ".tmp", JSON.stringify(s, null, 2) + "\n"); fs.renameSync(f + ".tmp", f); }
 ' "$DATA/settings.json" "$PORT"
+# --auto-updates / --no-auto-updates: System updates → Install automatically / Off
+if [ -n "$AUTO_UPD" ]; then
+  node -e '
+    const fs = require("fs"); const f = process.argv[1];
+    let s = {}; try { s = JSON.parse(fs.readFileSync(f, "utf8")); } catch {}
+    s.osUpdates = { ...(s.osUpdates || {}), mode: process.argv[2] === "on" ? "install" : "off" };
+    fs.writeFileSync(f + ".tmp", JSON.stringify(s, null, 2) + "\n"); fs.renameSync(f + ".tmp", f);
+  ' "$DATA/settings.json" "$AUTO_UPD"
+fi
 chown "$SVC_USER:$SVC_USER" "$DATA/settings.json"
 chmod 0600 "$DATA/settings.json"   # holds the access key hash and the MQTT password
 ok "version $(node -p "require('$DEST/package.json').version"), settings in $DATA, web page on port $PORT"
+[ "$AUTO_UPD" = on ] && say "system updates: installed automatically 5 minutes after each start of the Pi, then every 24 hours"
+[ "$AUTO_UPD" = off ] && say "system updates: only when asked for on the System tab"
 
 # ---------------------------------------------------------------- PipeWire MIDI
 # PipeWire's MIDI bridge subscribes to every ALSA MIDI port, which keeps the ADI-2's MIDI port
@@ -510,12 +540,23 @@ EOF2
   fi
 fi
 
-# ---------------------------------------------------------------- UPS HAT (optional)
-step "Looking for a UPS HAT"
+# ---------------------------------------------------------------- UPS HAT (optional; reported only when found)
+step "Starting ADI-2-Pi"
 CONFIG_TXT=/boot/firmware/config.txt; [ -f "$CONFIG_TXT" ] || CONFIG_TXT=/boot/config.txt
-# the ADI-2 trigger on GPIO3 and I²C (GPIO2/3) exclude each other
-TRIGGER_GPIO3=0
+# the ADI-2 trigger on GPIO3 and I²C (GPIO2/3) exclude each other: set up on the System tab, or
+# wired (the trigger pulls GPIO3 low while the ADI-2 is on)
+gpio3_low() {
+  command -v gpiodetect >/dev/null 2>&1 || return 1
+  local chip v
+  chip="$(gpiodetect 2>/dev/null | grep -E 'pinctrl-(bcm2711|bcm2835|bcm2837|rp1)' | head -n1 | awk '{print $1}' || true)"
+  [ -n "$chip" ] || return 1
+  if gpioget --version 2>/dev/null | grep -q 'v2\.'; then v="$(gpioget --numeric -c "$chip" 3 2>/dev/null || true)"
+  else v="$(gpioget "$chip" 3 2>/dev/null || true)"; fi
+  [ "$v" = 0 ]
+}
+TRIGGER_GPIO3=0; TRIGGER_WIRED=0
 if [ -f "$DATA/settings.json" ] && node -e "const t=require('$DATA/settings.json').trigger||{};process.exit(t.enabled&&t.source==='gpio'&&(t.pin||3)===3?0:1)" 2>/dev/null; then TRIGGER_GPIO3=1; fi
+if [ ! -e /dev/i2c-1 ] && gpio3_low; then TRIGGER_WIRED=1; fi
 ups_probe() {   # prints the model found on I²C bus 1, or nothing
   if [ "$(i2cget -y 1 0x2d 0x00 b 2>/dev/null)" = "0x0a" ]; then echo "Waveshare UPS HAT (E)"; return; fi
   if i2cget -y 1 0x42 0x02 w >/dev/null 2>&1; then echo "Waveshare UPS HAT / UPS HAT (B)"; return; fi
@@ -527,42 +568,26 @@ i2c_persist() {
   echo i2c-dev > /etc/modules-load.d/i2c-dev.conf
 }
 UPS_FOUND=""
-if [ "$UPS_MODE" = off ]; then
-  say "skipped (--no-ups)"
-else
-  I2C_WAS_ON=0; [ -e /dev/i2c-1 ] && I2C_WAS_ON=1
-  if [ "$I2C_WAS_ON" -eq 0 ]; then
-    if [ "$TRIGGER_GPIO3" -eq 1 ] && [ "$UPS_MODE" != on ]; then
-      ANS=n
-      if [ "$ASSUME_YES" -eq 0 ] && [ -t 0 ]; then
-        say "The ADI-2 trigger uses GPIO3. Looking for a UPS HAT needs I²C on GPIO2/3, which stops the"
-        say "trigger on GPIO3 (it can move to another GPIO, without starting the Pi)."
-        printf '      Switch I²C on and look for a UPS HAT? [y/N] '
-        read -r ANS || ANS=n
-      fi
-      case "$ANS" in y|Y|yes) ;; *) say "not looking (I²C stays off; --with-ups switches it on)"; UPS_MODE=off ;; esac
-    fi
-    if [ "$UPS_MODE" != off ]; then
-      # on for now only; kept on below when a UPS HAT answers
-      { command -v dtparam >/dev/null 2>&1 && dtparam i2c_arm=on >/dev/null 2>&1; modprobe i2c-dev 2>/dev/null; } || true
-      sleep 1
-    fi
+# I²C is switched on only with --with-ups (it takes GPIO3 from the trigger); a bus that is
+# on already is looked at quietly
+if [ "$UPS_MODE" = on ] && [ ! -e /dev/i2c-1 ]; then
+  # on for now only; kept on below when a UPS HAT answers
+  { command -v dtparam >/dev/null 2>&1 && dtparam i2c_arm=on >/dev/null 2>&1; modprobe i2c-dev 2>/dev/null; } || true
+  sleep 1
+fi
+if [ "$UPS_MODE" != off ] && [ -e /dev/i2c-1 ]; then UPS_FOUND="$(ups_probe)"; fi
+if [ -n "$UPS_FOUND" ]; then
+  i2c_persist
+  ok "$UPS_FOUND found – battery and power on the System tab; shuts the Pi down on battery (adjustable)"
+  if [ $((TRIGGER_GPIO3 + TRIGGER_WIRED)) -gt 0 ]; then
+    warn "the ADI-2 trigger uses GPIO3, which I²C needs now – move the trigger to another GPIO (System tab); it then can't start the Pi"
   fi
-  if [ "$UPS_MODE" != off ]; then
-    if [ -e /dev/i2c-1 ]; then UPS_FOUND="$(ups_probe)"; fi
-    if [ -n "$UPS_FOUND" ]; then
-      i2c_persist
-      ok "$UPS_FOUND found – battery and power on the System tab; shuts the Pi down on battery (adjustable)"
-      if [ "$TRIGGER_GPIO3" -eq 1 ]; then
-        warn "the ADI-2 trigger was set to GPIO3, which I²C uses now – choose another GPIO for it on the System tab"
-      fi
-    elif [ -e /dev/i2c-1 ]; then
-      if [ "$UPS_MODE" = on ]; then i2c_persist; warn "no UPS HAT answered on I²C (0x2D, 0x42, 0x43) – I²C stays on"
-      else say "no UPS HAT found"; fi
-    else
-      warn "I²C could not be switched on – no UPS HAT check (reboot and run the installer again)"
-    fi
-  fi
+elif [ "$UPS_MODE" = on ]; then
+  if [ -e /dev/i2c-1 ]; then say "no UPS HAT answered on I²C (0x2D, 0x42, 0x43) – I²C is switched off again at the next start"
+  else warn "I²C could not be switched on – no UPS HAT check"; fi
+fi
+if [ "$TRIGGER_WIRED" -eq 1 ] && [ "$TRIGGER_GPIO3" -eq 0 ]; then
+  ok "ADI-2 trigger found on GPIO3 – to use it: System → Shut down with the ADI-2 → 12 V trigger"
 fi
 # UPS HAT (E): after a power-off on battery, tell the HAT to switch off; it starts the Pi again when power returns
 if [ "$UPS_FOUND" = "Waveshare UPS HAT (E)" ]; then
@@ -571,7 +596,6 @@ if [ "$UPS_FOUND" = "Waveshare UPS HAT (E)" ]; then
 fi
 
 # ---------------------------------------------------------------- journal in RAM (optional)
-step "Starting ADI-2-Pi"
 if [ "$JOURNAL_RAM" -eq 1 ]; then
   install -d /etc/systemd/journald.conf.d
   printf '# installed by adi2-pi --journal-ram\n[Journal]\nStorage=volatile\nRuntimeMaxUse=32M\n' > /etc/systemd/journald.conf.d/50-adi2-pi-volatile.conf

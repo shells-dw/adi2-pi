@@ -102,9 +102,9 @@ Standard WebSocket libraries answer by themselves.
 |---|---|---|
 | `hello` | `api`, `access`, `bridge {name, version, host, auth, viewOpen}`, `device` | on connect (`auth`: an access key is set; `access`: `full`, or `read` when the connection has no valid key and `viewOpen` lets it read) |
 | `access` | `access` (`full` / `read`) | the connection's access changed because the key or `viewOpen` setting changed |
-| `state` | `device`, `p {"addr.idx": value}`, `setups [9 names]`, `eqPresets [20]`, `unitStatus`, `statusInfo`, `silences`, `bluetooth`, `streaming`, `routing`, `trigger`, `automation`, `mqtt`, `ups`, `updates`, `nowplaying` | on connect, on `get` |
+| `state` | `device`, `p {"addr.idx": value}`, `setups [9 names]`, `eqPresets [20]`, `unitStatus`, `statusInfo`, `silences`, `bluetooth`, `streaming`, `routing`, `inputPriority`, `trigger`, `automation`, `mqtt`, `ups`, `updates`, `osUpdates`, `nowplaying` | on connect, on `get` |
 | `settings` | `settings` | on connect and when settings change |
-| `p` | `p {"addr.idx": value}`, `origin` | values changed. `origin`: `device` = on the unit (knob, remote, read-back), `client` = through the bridge, `auto` = the bridge switching outputs to USB while the Pi plays, `bridge` = Loopback for Bluetooth out, `scene` / `rule` = a scene applied by a client / by an action, `profile` = a headphone profile applied, `sleep` = sleep timer, `start` = start volume, `stream` = volume of an AirPlay/Spotify sender, `restore` = restore from a backup, `mqtt` = MQTT command |
+| `p` | `p {"addr.idx": value}`, `origin` | values changed. `origin`: `device` = on the unit (knob, remote, read-back), `client` = through the bridge, `auto` = the bridge switching outputs to USB while the Pi plays, `input` = input priority, `bridge` = Loopback for Bluetooth out, `scene` / `rule` = a scene applied by a client / by an action, `profile` = a headphone profile applied, `sleep` = sleep timer, `start` = start volume, `stream` = volume of an AirPlay/Spotify sender, `restore` = restore from a backup, `mqtt` = MQTT command |
 | `device` | `device` | ADI-2 connected / identified / ready / gone |
 | `setups` | `setups` | setup names read from the unit |
 | `eqpresets` | `eqPresets` | the unit's 20 EQ presets changed (see below) |
@@ -114,11 +114,13 @@ Standard WebSocket libraries answer by themselves.
 | `streaming` | `streaming` | streaming receivers changed (see below) |
 | `routing` | `routing` | sources playing, which is heard, sample rate (see below) |
 | `trigger` | `trigger` | shut down with the ADI-2: trigger state, countdown (see below) |
+| `inputPriority` | `inputPriority` | input priority: settings, signals, pending switch (see below) |
 | `ups` | `ups` | UPS HAT readings or settings changed (see below) |
 | `nowplaying` | `nowplaying` | title, artist, play state of what the Pi plays changed (see below) |
 | `updates` | `updates` | update check switched, started or finished (see below) |
+| `osUpdates` | `osUpdates` | system updates: mode changed, check or install started or finished (see below) |
 | `sleep` | `sleep` | sleep timer started, fading, ended or cancelled (`null` = off; see below) |
-| `automation` | `automation { sleep, fired }` | an action was applied (`fired`: the last 20, `[{ at, rule, scene, event }]`) |
+| `automation` | `automation { sleep, fired, waiting }` | an action was applied or starts / stops waiting (`fired`: the last 20, `[{ at, rule, scene, event }]`; `waiting`: `[{ rule, scene, end, due, event }]`, `due` in ms since 1970) |
 | `restore` | `restore` | restore progress (see [Backup](#backup)) |
 | `mqtt` | `mqtt { enabled, connected, error, topic }` | MQTT connection changed |
 | `midi` | `dir` (`rx`/`tx`), `hex` | raw SysEx, only after `monitor` |
@@ -164,13 +166,18 @@ before (routine re-reads left out), `what` in plain words such as `store EQ pres
 { "t": "routing", "action": "mode", "value": "newest" }            // newest | mix
 { "t": "routing", "action": "rate", "value": 96000 }               // 0 = follow what plays, or 44100 … 192000
 { "t": "routing", "action": "usb", "value": { "ph34": false } }    // switch these outputs to USB while the Pi plays
+{ "t": "inputPriority", "enabled": true, "order": ["aes", "analog"], "outputs": { "line": true, "ph34": false }, "delaySec": 2 } // see Input priority
 { "t": "trigger", "enabled": true, "delaySec": 10, "source": "usb" } // shut down with the ADI-2 (10 | 30 | 60 | 300 s; usb | gpio)
 { "t": "trigger", "cancel": true }                                 // stop a running countdown
 { "t": "trigger", "pin": 17 }                                      // trigger GPIO: 3 (also wakes the Pi), 4, 17, 22, 23, 24, 25, 27
+{ "t": "trigger", "atStartSec": 900 }                              // Pi started with the ADI-2 off: 0 = stays on, or shut down after 300 | 900 | 1800 | 3600 s
 { "t": "ups", "shutdown": true, "delaySec": 60, "lowPct": 10 }    // UPS HAT: shut down on battery (10…600 s / 5…50 %)
 { "t": "ups", "cancel": true }                                     // stop a running UPS countdown
 { "t": "updates", "check": true }                                  // daily update check on / off
 { "t": "updates", "now": true }                                    // ask GitHub once now; answers when done (429 within 30 s of the last one)
+{ "t": "osUpdates", "mode": "notify" }                             // system updates: off | notify | install
+{ "t": "osUpdates", "action": "check" }                            // check | install: starts it, progress as osUpdates broadcasts (409 while one runs)
+{ "t": "osUpdates", "action": "reboot" }                           // restart the Pi (409 while installing)
 { "t": "scene", "action": "apply", "id": "a1b2c3d4" }             // apply a scene
 { "t": "scene", "action": "save", "name": "Late night", "params": [{ "ch": "ph34", "id": "vol" }, { "ch": "ph34", "id": "loud" }] }
                                                                    // new scene from the current values (→ { t: "scene", scene })
@@ -230,6 +237,8 @@ While the unit is not connected or not answering, sets are refused with 409.
 | `POST /api/routing` | `{ action, key? , value? }` as the WebSocket `routing` | routing after the change |
 | `GET /api/streaming` | | streaming receivers (see below) |
 | `POST /api/streaming` | `{ id, enabled?, server? }` | receivers after the change |
+| `GET /api/inputpriority` | | input priority (see below) |
+| `POST /api/inputpriority` | `{ enabled?, order?, outputs?, delaySec? }` | input priority after the change |
 | `GET /api/trigger` | | trigger (see below) |
 | `POST /api/trigger` | `{ enabled?, delaySec?, source?, cancel? }` | trigger after the change |
 | `GET /api/usb` | | `{ available, card, open, rate, channels, owner, lastSet }`: the ADI-2's USB playback device |
@@ -243,13 +252,14 @@ While the unit is not connected or not answering, sets are refused with 409.
 | `GET /api/nowplaying/cover` | `?source=airplay` | the current AirPlay cover image (404 without one) |
 | `POST /api/scene` | `{ action, id?, name?, items?, params? }` as the WebSocket `scene` | reply of the command |
 | `GET /api/sleep` / `POST /api/sleep` | – / `{ minutes }` or `{ cancel: true }` | sleep timer, `null` = off |
-| `GET /api/automation` | | `{ sleep, fired }` |
+| `GET /api/automation` | | `{ sleep, fired, waiting }` |
 | `GET /api/backup` | | backup file (JSON, `Content-Disposition: attachment`) |
 | `POST /api/restore` | `{ backup, parts? }` or the backup itself (max. 1 MB) | 202, restore progress |
 | `GET /api/restore` | | restore progress |
 | `GET /api/mqtt` | | MQTT connection `{ enabled, connected, error, topic }` |
 | `GET /api/ups` / `POST /api/ups` | – / `{ shutdown?, delaySec?, lowPct?, cancel? }` | UPS HAT (see below) |
 | `GET /api/updates` / `POST /api/updates` | – / `{ check?, now? }` | update check (see below) |
+| `GET /api/osupdates` / `POST /api/osupdates` | – / `{ mode?, action? }` | system updates (see below) |
 | `POST /api/hook` | `{ receiver, value }` | volume of an AirPlay/Spotify sender; only from the Pi itself (bin/adi2-pi-hook.js) |
 | `GET /api/eq/index` | | headphone and target list, plus `origin { ref, generated, source: bundled\|updated }` |
 | `GET /api/eq/file?path=…` | a `path` from the list | measurement / target CSV, from the Pi (never the internet) |
@@ -314,7 +324,9 @@ it does not indicate playback on Phones 3/4), `mode` (current device mode), `bal
 Pro EX sends beyond the documented length) and `inputs`: `{ aes, spdif }` – `true` while the
 AES input, or the SPDIF input chosen under SPDIF In (coax or optical), receives a valid digital
 signal (also when the source is stopped or muted), `false` without. Decoded from IOStatus1 bits
-23+21 (AES) and 24+22 (SPDIF), tested on the ADI-2 Pro EX; `null` on other models. Device parameter `srate` (index 16, read-only) is
+23+21 (AES) and 24+22 (SPDIF), tested on the ADI-2 Pro EX; `null` on other models. `jacks`:
+`{ ph12, ph34 }` – `true` while a plug is in that headphone jack (IOStatus1 bit 0 / bit 6, tested on
+the ADI-2 Pro EX; `null` on other models). Device parameter `srate` (index 16, read-only) is
 the current sample rate: 0–9 = 44.1, 48, 88.2, 96, 176.4, 192, 352.8, 384, 705.6, 768 kHz.
 
 ## Bluetooth
@@ -394,6 +406,35 @@ ones (PipeWire stream/node mute) and unmutes them when they become the newest ag
 
 Parameter changes made by the USB switching are broadcast with `origin: "auto"`.
 
+## Input priority
+
+Outputs play the first input of `order` that has a signal (Basic Mode AD/DA or DAC; the unit's
+own Auto stays in USB mode while the Pi is connected).
+
+```jsonc
+{
+  "enabled": true,
+  "order": ["aes", "analog"],              // 1…4 of aes, spdif, analog, usb; each once
+  "outputs": { "line": true, "ph34": true },
+  "delaySec": 2,                           // 0…86400: signal there / gone this long before switching
+  "available": true,                       // false on models without AES/SPDIF detection (not the ADI-2 Pro)
+  "reason": null,
+  "signal": { "aes": true, "spdif": false }, // from statusInfo.inputs; null until the first status
+  "current": "aes",                        // input the outputs were last switched to (null: not yet)
+  "pending": { "to": "analog", "at": 1761500000000 }, // switches at at + delaySec, unless it changes back
+  "last": { "at": 1761400000000, "to": "aes", "outputs": ["line", "ph34"] }
+}
+```
+
+- AES and SPDIF come from the status message (`statusInfo.inputs`; SPDIF = the input chosen under
+  SPDIF In). `analog` and `usb` have no detection and count as available, so entries after the
+  first of them are never used. If no entry is available, nothing changes.
+- Source values sent: AES, SPDIF, Analog, USB 1/2 of the output's Source list (origin `input`).
+- Switches only when the first available input changes; a Source set otherwise stays until then.
+- An output held on USB while the Pi plays (`routing.held`) is not switched; its `held` value is set
+  to the new input instead.
+- Changing `order` or `outputs`, or enabling it, applies the list once.
+
 ## Trigger
 
 ```jsonc
@@ -401,14 +442,25 @@ Parameter changes made by the USB switching are broadcast with `origin: "auto"`.
   "enabled": true, "delaySec": 10,
   "source": "gpio",                        // usb: USB port gone or unit not answering; gpio: Trigger Out on GPIO3
   "pin": 3,
+  "atStartSec": 0,                         // started with the ADI-2 off: 0 = stays on, else shut down after this long
   "model": "Raspberry Pi 4 Model B Rev 1.5", "canWake": true,   // source gpio on a Pi 4/3: starts when GPIO3 goes low
   "available": true, "reason": null,       // e.g. "GPIO3 is in use by something else – usually I²C …"
   "adiOn": true,                           // ADI-2 on (gpio: GPIO3 low; usb: connected and answering); null while disabled or unreadable
   "armed": true,                           // the ADI-2 was seen on: a standby will shut the Pi down
   "shutdownAt": null,                      // ms timestamp of the shutdown while counting down
+  "atStart": false,                        // the countdown is the one after the start (atStartSec)
+  "waitingForUpdates": false,              // shutdown due, waiting for dpkg/apt/unattended-upgrade to finish (30 min at most)
+  "detected": true,                        // GPIO3 was low while the ADI-2 answered over USB: a trigger is wired there
+  "noSignal": false,                       // source gpio: the ADI-2 answers over USB but the trigger GPIO stays high
   "shuttingDown": false
 }
 ```
+
+- With source `gpio`, the USB connection is a second opinion: while the ADI-2 answers over USB it
+  counts as on, so a loose trigger wire doesn't shut the Pi down (`noSignal` after 10 s).
+- While GPIO3 isn't the trigger input (or the trigger is off), GPIO3 is read every 10 s while the
+  ADI-2 answers over USB, unless it is in use (I²C); low sets `detected`.
+- `atStartSec` applies only when ADI-2-Pi starts within 10 minutes of the system boot; it counts from that start, or from the last change of the trigger settings. A cancel ends it until the ADI-2 has been on.
 
 ## Bridge settings
 
@@ -423,16 +475,18 @@ Parameter changes made by the USB switching are broadcast with `origin: "auto"`.
   "receivers": { "airplay": { "enabled": true }, "spotify": { "enabled": true }, "upnp": { "enabled": true, "uuid": "…" },
                  "squeezelite": { "enabled": false, "server": "" }, "snapcast": { "enabled": false, "server": "" } },
   "routing": { "mode": "newest", "rate": 0, "usb": { "line": true, "ph34": true }, "held": { "line": null, "ph34": null } },
+  "inputPriority": { "enabled": false, "order": ["aes", "analog"], "outputs": { "line": true, "ph34": true }, "delaySec": 2 },   // see Input priority
   "trigger": { "enabled": false, "delaySec": 10, "source": "usb", "pin": 3 },
   "ups": { "shutdown": true, "delaySec": 60, "lowPct": 10 },
   "updates": { "check": false },                     // daily update check (GitHub)
+  "osUpdates": { "mode": "off" },                    // system updates: off | notify | install
   "streamVolume": { "enabled": false, "outputs": ["line"], "minDb": -60, "maxDb": -10, "airplay": true, "spotify": true },
   "startVolume": { "enabled": false, "levels": { "line": null, "ph12": -30, "ph34": -30 } },
   "quickLevels": { "line": [], "ph12": [], "ph34": [-40, -25, -15] },   // volume buttons per output, up to 4
   "scenes": [{ "id": "a1b2c3d4", "name": "Late night", "items": [{ "ch": "ph34", "id": "vol", "value": -35 }] }],
   "profiles": [{ "id": "d456eab6", "name": "HD 650", "items": [{ "id": "eqpreset", "value": 3 }, { "id": "xfeed", "value": 2 }], "limit": -10 }],
   "activeProfile": { "line": null, "ph12": null, "ph34": "d456eab6" },  // the profile applied last per output
-  "rules": [{ "id": "e5f6a7b8", "enabled": true, "name": "", "when": { "type": "time", "at": "22:00", "until": "07:00", "days": [0,1,2,3,4,5,6] }, "scene": "a1b2c3d4", "sceneEnd": "f0e1d2c3" }],
+  "rules": [{ "id": "e5f6a7b8", "enabled": true, "name": "", "when": { "type": "time", "at": "22:00", "until": "07:00", "days": [0,1,2,3,4,5,6] }, "scene": "a1b2c3d4", "sceneEnd": "f0e1d2c3", "delaySec": 0 }],
   "sleep": { "outputs": ["line", "ph12", "ph34"], "fadeSec": 60 },
   "access": { "enabled": false, "viewOpen": false },  // write { "access": { "key": "…" } } to set, "" to remove; viewOpen: reads without the key
   "mqtt": { "enabled": false, "host": "", "port": 1883, "username": "", "hasPassword": false, "base": "adi2pi", "discovery": true, "discoveryPrefix": "homeassistant" }
@@ -485,6 +539,38 @@ pre-releases excluded) a minute after start and then every 24 h while `check` is
 a failed check, and once for `now`. Nothing is downloaded or installed. `latest` is `null` when no
 release is published. With `check` off, no request is made unless `now` is sent.
 
+## System updates
+
+```jsonc
+{
+  "mode": "notify",                   // settings.osUpdates.mode: off | notify (check) | install
+  "available": true, "reason": null,  // false: the services aren't set up (installer not run again)
+  "state": "idle",                    // idle | checking | installing
+  "checkedAt": 1793000000000,         // last list of available updates, ms
+  "count": 2,
+  "updates": [                        // from `apt-get -s full-upgrade`
+    { "name": "libc6", "from": "2.41-12", "to": "2.41-12+deb13u1", "origin": "Debian", "security": true },
+    { "name": "nodejs", "from": "24.10.0-1nodesource1", "to": "24.11.1-1nodesource1", "origin": "Node Source", "security": false }
+  ],
+  "removes": [],                      // packages the update would remove
+  "node": { "name": "nodejs", … },    // the Node.js entry of updates, or null
+  "restart": "6.12.62+rpt-rpi-v8",    // a newer kernel of the running flavour is installed, or null
+  "lastRun": { "kind": "install", "at": 1793000000000, "ok": true, "log": [] }, // log: last lines on failure
+  "error": null,
+  "nextAt": 1793086400000             // next automatic run, null with mode off
+}
+```
+
+- `check` starts `adi2-pi-os-check.service` (`apt-get update`), `install` starts
+  `adi2-pi-os-upgrade.service` (`dpkg --configure -a`, `apt-get update`, `apt-get full-upgrade`
+  non-interactive, keeping changed configuration files). Both are root services the bridge may
+  start through polkit; it follows them with `systemctl show` and lists the updates again
+  afterwards.
+- Automatic runs (`notify`, `install`): 5 minutes after the Pi started, then every 24 h; when the
+  bridge starts later than 10 minutes after boot, 5 minutes later or 24 h after the last check.
+- After an install that replaced Node.js the bridge exits; systemd starts it on the new version.
+- The last result is kept in `<data>/os-updates.json`.
+
 ## Volume from the sender
 
 `streamVolume`: AirPlay (shairport-sync) and Spotify Connect (librespot, versions with
@@ -515,6 +601,14 @@ An action (`rules`) applies a scene when something happens. `when.type`:
 | `time` | `at` `HH:MM`, `days` 0 (Sunday) … 6, optional `until` `HH:MM` | at that minute, Pi local time. With `until`, the rule's `sceneEnd` is applied at that minute (on the same day, or the next when `until` < `at`) |
 | `input-signal` / `input-lost` | `input`: `any`, `aes`, `spdif` | the digital input gets / loses a valid signal (`statusInfo.inputs`; Pro models) |
 | `idle` | `minutes` 1 … 720 | the Pi has played nothing for that long; once per quiet period |
+
+Optional `delaySec` (whole seconds, 0 … 86400; absent = 0): the scene is applied that much later.
+The opposite event in the meantime drops the waiting action – `input-signal`/`input-lost` for the
+same input, `bt-connect`/`bt-disconnect` for the same device, `play-start`/`play-stop` for the
+same source (for `any`: any source starting drops a waiting stop, everything stopped drops a waiting
+start), playback drops `idle`, the unit going off drops `unit-on`. `time` actions (and their
+`sceneEnd`) just move by the delay. Waiting actions are in `automation.waiting`; they are not kept
+across a restart.
 
 Actions only run while the unit is usable. Changes have `origin: "rule"`.
 
@@ -659,7 +753,7 @@ hosted elsewhere can be allowed with `--allow-origin https://example.org`.
    the volume limits and the rise-speed limit.
 6. On close, reconnect with a backoff (1 s … 15 s).
 
-```js
+```jsonc
 const { Adi2PiClient } = require('./adi2pi-client');
 const c = new Adi2PiClient({ url: 'ws://adi2-pi.local/ws', WebSocket: require('ws') });
 c.on('ready', async () => {

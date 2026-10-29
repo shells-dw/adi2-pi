@@ -99,3 +99,15 @@ test('digital inputs from the status message (ADI-2 Pro EX captures)', () => {
   const mixed = st('05 74 44 08 40 00 0A 02 00 01 02 02 00 00'); // bit 21 only
   assert.strictEqual(P.digitalInputs(mixed, 'pro', { aes: true, spdif: false }).aes, true);
 });
+
+test('headphone jacks from the status message (ADI-2 Pro EX captures)', () => {
+  const st = (h) => P.parseStatus(h.split(' ').map((x) => parseInt(x, 16)));
+  const cases = [
+    ['05 30 7E 08 48 00 00 02 00 01 02 02 00 00', false, true],  // plug in Phones 3/4 (bit 3 changes on its own)
+    ['05 30 7E 08 40 00 00 02 00 01 02 02 00 00', false, true],  // again
+    ['05 30 7E 08 00 00 00 02 00 01 02 02 00 00', false, false], // pulled
+    ['05 30 7E 08 09 00 00 02 00 01 02 02 00 00', true, false],  // plug in Phones 1/2
+  ];
+  for (const [h, ph12, ph34] of cases) assert.deepStrictEqual(P.phoneJacks(st(h), 'pro'), { ph12, ph34 }, h);
+  assert.strictEqual(P.phoneJacks(st(cases[0][0]), 'se'), null, 'not decoded for other models');
+});

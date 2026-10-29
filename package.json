@@ -1,6 +1,6 @@
 {
   "name": "adi2-pi",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Network remote and audio bridge for RME ADI-2 series converters on a Raspberry Pi",
   "keywords": [
     "rme",

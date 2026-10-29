@@ -14,6 +14,8 @@ ADI-2/4 Pro SE / Pro EX). Runs on a Raspberry Pi connected to the unit by USB.
 - **Scenes, actions, sleep timer:** named sets of values; actions apply them on events (Bluetooth
   device connects, playback starts or stops, time of day, unit switched on); sleep timer with
   fade-out and mute.
+- **Input priority** (ADI-2 Pro models): outputs play the first input of a list that has a signal,
+  e.g. AES, or Analog while AES has none.
 - **Backup and restore** of the unit's settings, EQ presets, setup names and ADI-2-Pi's settings.
 - **Optional access key** for the API and the web interface.
 - **MQTT** with Home Assistant discovery.
@@ -27,7 +29,8 @@ ADI-2/4 Pro SE / Pro EX). Runs on a Raspberry Pi connected to the unit by USB.
 - **Shutdown with the ADI-2 (optional):** shuts the Pi down when the ADI-2's USB connection
   disappears, or when its 12 V Trigger Out switches off (wired to GPIO3; Pi 4/3 also start again).
 - Works offline. Outgoing connections made by ADI-2-Pi itself: the optional headphone data
-  update, the optional update check, and the MQTT server when MQTT is switched on.
+  update, the optional update check, the MQTT server when MQTT is switched on, and apt's
+  package sources for system updates when asked for or switched on.
 
 ## Requirements
 
@@ -77,9 +80,11 @@ in a later run.
 | `--with-roon` | Roon Bridge: runs Roon's installer. |
 | `--keep-pipewire-midi` | Leaves the MIDI bridge of the desktop session's PipeWire enabled (see [MIDI port](#midi-port)). |
 | `--journal-ram` | Keeps the system journal in RAM only. |
-| `--with-ups` | Switches I²C on for a UPS HAT even when the ADI-2 trigger is set to GPIO3 (and keeps I²C on if no HAT answers). |
-| `--no-ups` | Doesn't look for a UPS HAT. |
+| `--with-ups` | Switches I²C on and looks for a Waveshare UPS HAT; I²C stays on when one answers (see [UPS HAT](#ups-hat)). |
+| `--no-ups` | Doesn't look for a UPS HAT at all. |
 | `--system-node` | Node.js from Raspberry Pi OS instead of NodeSource; removes NodeSource's repository if present. Without the option, a later run switches to Node.js 24 again. |
+| `--auto-updates` | Sets System → *System updates* to *install*: all updates 5 minutes after each start of the Pi, then every 24 hours (see [System updates](#system-updates)). |
+| `--no-auto-updates` | Sets it to *off* (updates only when asked for). |
 | `-y`, `--yes` | No questions. |
 
 Uninstall: `sudo /opt/adi2-pi/uninstall.sh` (`--purge` also removes settings and the service user).
@@ -88,7 +93,7 @@ Uninstall: `sudo /opt/adi2-pi/uninstall.sh` (`--purge` also removes settings and
 
 | Tab | Content |
 |---|---|
-| Overview | All outputs: volume, mute, dim, quick levels, headphone profile, source, DSP switches |
+| Overview | *Signal path*: the unit (model, mode, clock, sample rate, balanced phones), its sources with AES/SPDIF signal and what the Pi plays, each output with the source it plays (selectable; marked *auto* when input priority set it, *Pi playing* while it is on USB for the Pi), volume and level at 0 dBFS; scenes that match the unit, active headphone profiles, sleep timer and waiting actions, UPS, updates. Below: volume, Mute/Dim, quick levels, profile, Ref Level and DSP switches per output |
 | Line Out, Phones 1/2, Phones 3/4 | Level, EQ, bass/treble, loudness, settings of the output |
 | Input | Analog input (Pro models) |
 | EQ Presets | The unit's 20 EQ presets: editor, apply to an output, store, load |
@@ -96,11 +101,16 @@ Uninstall: `sudo /opt/adi2-pi/uninstall.sh` (`--purge` also removes settings and
 | Pi Playback | Title and artist of what plays, sources played by the Pi, sample rate, switching outputs to USB |
 | Bluetooth | Pairing phones, pairing and routing headphones/speakers |
 | Streaming | Network receivers on/off, server addresses |
-| State | Device and output status overview |
-| Scenes & Actions | Sleep timer, headphone profiles, scenes, actions |
+| Scenes & Actions | Sleep timer, input priority, headphone profiles, scenes, actions |
 | Headphone EQ | Headphone EQ Generator |
-| System | Bridge name, language, volume limits, quick levels, start volume, volume from the sender, shutdown with the ADI-2, UPS HAT, updates, backup/restore, access key, MQTT, Debug tab switch |
+| System | Bridge name, language; *Volume*: per output the highest volume, the level at start and the quick levels, rise speed, linked outputs; volume from the sender, shutdown with the ADI-2, UPS HAT, access key, MQTT, ADI-2-Pi updates, system updates, backup/restore, Debug tab switch |
 | Debug | Shown when enabled under System (per browser): changes sent to the unit with their origin, parameters not in the schema, MIDI monitor, connection log, parameter table, status recorder |
+
+Device, Pi Playback, Bluetooth, Streaming, Scenes & Actions and System are lists of sections: on a
+wide screen with a section list (and search) beside them, on a phone as a grouped list with the
+current value of each section; a section opens full screen. Explanations sit behind the ⓘ next to
+a section's title (on hover with a mouse, on tap otherwise). Settings on the System tab are saved as
+they are changed; the access key, UPS HAT and MQTT settings have their own Save button.
 
 Controls: volume knobs react to dragging (Shift = fine), scroll wheel and arrow keys;
 double-click mutes. EQ curve points are dragged for frequency and gain, the scroll wheel changes
@@ -196,8 +206,14 @@ System → *Shut down with the ADI-2*. The Pi shuts down after the ADI-2 has bee
 | Wiring | none | optocoupler, see below |
 | Pi starts again with the ADI-2 | no | Pi 4 and 3, trigger on GPIO3 only |
 
-In both cases the Pi only shuts down after it has seen the ADI-2 on: a Pi started while the
-ADI-2 is off stays on. A running countdown can be cancelled on the System tab.
+By default the Pi only shuts down after it has seen the ADI-2 on: a Pi started while the ADI-2 is
+off stays on. *Started with the ADI-2 off* changes that: the Pi shuts down 5, 15, 30 or 60 minutes
+after it started if the ADI-2 hasn't been switched on by then (for example when power returns after
+an outage, or after a reboot). Only a start together with the Pi counts – restarting ADI-2-Pi later
+(e.g. by running the installer) doesn't. A running countdown can be cancelled on the System tab.
+
+A package update in progress (dpkg, apt, unattended-upgrades, [System updates](#system-updates))
+is finished before the Pi shuts down; after 30 minutes it shuts down anyway.
 
 #### 12 V trigger
 
@@ -221,6 +237,11 @@ ADI-2 Trigger Out                          Raspberry Pi
 Alternatively a PC817 optocoupler module with 12 V input: IN+ to tip, IN− to sleeve, OUT to
 GPIO3, GND to GND, output VCC to 3.3 V (pin 1; not 5 V).
 
+A trigger wired to GPIO3 is recognised while the ADI-2 is on and answers over USB: the installer
+says so, and System → *Shut down with the ADI-2* offers to use it. With the trigger in use, the
+USB connection serves as a second opinion: while the ADI-2 answers over USB it counts as on, so a
+loose wire doesn't shut the Pi down – the card then reports that the GPIO gets no trigger signal.
+
 **Power switching (all models, including the Pi 5; untested).** For models that cannot be woken
 through GPIO3, a 12 V delay-off timer relay module switches the Pi's supply in addition to the
 optocoupler connection above:
@@ -242,19 +263,24 @@ ADI-2 Trigger Out ──┬── optocoupler ── GPIO3 / GND        (shutdow
 Behaviour:
 
 - A shutdown happens only after the trigger has been seen on since the bridge started: a Pi
-  booted while the ADI-2 is in standby stays on.
+  booted while the ADI-2 is in standby stays on (unless *Started with the ADI-2 off* is set).
 - Power loss affects both devices at once; the trigger does not cover it.
 - With Auto Standby enabled on the ADI-2, the Pi shuts down with it.
-- GPIO3 is also I²C SCL; it is unavailable while I²C is enabled (UPS HAT or another HAT).
+- GPIO3 is also I²C SCL; it is unavailable while I²C is enabled (UPS HAT or another HAT). The
+  installer switches I²C on only with `--with-ups`.
 - GPIO is read with `gpioget` (libgpiod 1.x and 2.x); the shutdown uses `systemctl poweroff`,
   permitted for `adi2pi` by `/etc/polkit-1/rules.d/50-adi2-pi.rules`.
 
 ### UPS HAT
 
 Supported: Waveshare UPS HAT and UPS HAT (B) (INA219 at 0x42, two cells), UPS HAT (C) and (D)
-(INA219 at 0x43, one cell), UPS HAT (E) (controller at 0x2D). The installer switches I²C on for a
-moment, looks at these addresses and keeps I²C on when a HAT answers. If the ADI-2 trigger is set
-to GPIO3, it asks first (I²C uses GPIO2/3).
+(INA219 at 0x43, one cell), UPS HAT (E) (controller at 0x2D).
+
+To set one up, run the installer with `--with-ups`: it switches I²C on, looks at these
+addresses and keeps I²C on when a HAT answers (otherwise I²C is off again after the next start).
+I²C uses GPIO2/3, so a 12 V trigger then has to use another GPIO and can't start the Pi. Without the
+option the installer doesn't switch I²C on; when I²C is on already, it looks quietly and only
+mentions a HAT it found.
 
 System → *UPS HAT* shows the power source, battery level, voltage and current; the (E) also input
 voltage, remaining capacity and time to empty/full. On the INA219 models the level is estimated
@@ -279,6 +305,37 @@ or installed. To update, download the release from
 [github.com/shells-dw/adi2-pi/releases](https://github.com/shells-dw/adi2-pi/releases), unpack
 it and run `sudo ./install.sh` with the options used before; settings are kept.
 
+### System updates
+
+System → *System updates* keeps the Pi's software up to date: all packages of its apt sources –
+Raspberry Pi OS and Debian, Node.js from NodeSource, the receivers' repositories – the same as
+`sudo apt full-upgrade`.
+
+| *Automatically* | |
+|---|---|
+| off – only when asked (default) | *Check now* and *Install updates* on the System tab |
+| check and show | checks 5 minutes after the Pi starts, then every 24 hours; available updates are listed there and on the Overview |
+| install | checks and installs 5 minutes after the Pi starts, then every 24 hours |
+
+apt's own daily jobs run at fixed times of day with a random delay of up to 12 hours, which a Pi
+that is only on while the ADI-2 is often misses; this runs after each start instead. The installer
+options `--auto-updates` / `--no-auto-updates` set *install* / *off*.
+
+- The list shows each package with its versions and source; security updates are marked.
+- Installing is non-interactive; changed configuration files are kept (the package's new
+  default is saved next to them as `.dpkg-dist`). An interrupted dpkg run is finished first.
+- The Pi isn't restarted by itself. When a newer kernel is installed, the card says so and has a
+  *Restart the Pi* button. After a Node.js update ADI-2-Pi restarts on the new version by itself.
+- While updates are being installed the Pi doesn't shut down: *Shut down with the ADI-2* waits
+  for them, and the update holds a shutdown inhibitor. With *Started with the ADI-2 off* set, the
+  Pi also waits for the update that is due after the start.
+- How it works: ADI-2-Pi runs as an unprivileged user. The installer sets up two root services,
+  `adi2-pi-os-check.service` (`apt-get update`) and `adi2-pi-os-upgrade.service`
+  (`/opt/adi2-pi/lib/os-upgrade.sh`), and a polkit rule that lets ADI-2-Pi start these two and
+  restart the Pi – nothing else. Which packages would change is read with `apt-get -s
+  full-upgrade` (a simulation). Output: `/var/log/adi2-pi/os-check.log`, `os-upgrade.log`.
+- With an access key, only clients with the key can start updates or restart the Pi.
+
 ### Volume from the sender
 
 System → *Volume from the sender*. AirPlay and Spotify Connect play at full level; the position of
@@ -290,13 +347,32 @@ Bluetooth keep their own volume.
 
 ### Start volume
 
-System → *Start volume*: when the ADI-2 is switched on or reconnects, outputs louder than their
-level are turned down to it.
+System → *Volume* → *At start* per output and *Turn down at start*: when the ADI-2 is switched on
+or reconnects, outputs louder than their level are turned down to it. Empty = left as it is.
+
+### Input priority
+
+Tab *Scenes & Actions* → *Input priority* (default off). With the Pi on USB, the unit's Basic Mode
+Auto stays in USB mode, and in AD/DA mode the Source doesn't fall back to Analog when a digital
+input loses its signal; this does it from the Pi.
+
+- A list of inputs (AES, SPDIF, Analog, USB 1/2), e.g. *AES, Analog* or *AES, SPDIF, Analog*. The
+  chosen outputs (Line Out, Phones 3/4) get the Source of the first input that has a signal.
+- AES and SPDIF are detected from the unit's status (ADI-2 Pro models; SPDIF = the input chosen
+  under SPDIF In). Analog and USB can't be detected and count as always available, so the list
+  ends with the first of them. With only AES/SPDIF in the list and neither has a signal, nothing
+  changes.
+- *Delay* (default 2 s, up to 24 h): an input must have had, or lost, its signal this long before
+  the outputs switch – a sample-rate change re-locks the input briefly.
+- ADI-2-Pi only switches when the first available input changes: a Source picked by hand stays
+  until a signal comes or goes.
+- An output switched to USB while the Pi plays (see *Pi Playback*) stays on USB; the input it
+  returns to afterwards is updated.
 
 ### Quick levels
 
-System → *Quick levels*: up to four volume buttons per output (dB), shown under the knob on the
-Overview and the output pages. The volume limits apply.
+System → *Volume* → *Quick levels*: up to four volume buttons per output (dB), shown under the knob
+on the Overview and the output pages. The volume limits apply.
 
 ### Headphone profiles
 
@@ -315,12 +391,16 @@ Tab *Scenes & Actions*.
 
 - **Scene:** set the unit as wanted, tick what the scene holds (volume, mute, dim, source, EQ, EQ
   preset, bass/treble, loudness, crossfeed per output) and save. Applying it changes only these
-  values. Scenes can be applied from the page, the API, MQTT and actions.
+  values. Scenes can be applied from the page, the API, MQTT and actions. The Overview names the
+  scenes whose values all match the unit at the moment, however they were set.
 - **Action:** applies a scene when the ADI-2 is switched on, a Bluetooth device connects or
   disconnects, a source starts or stops playing on the Pi, the Pi has played nothing for a set
   number of minutes (once per quiet period), the AES or SPDIF input gets or loses its signal (Pro
   models; carrier lock, not whether audio plays), or at a time of day (Pi local time). A time
   action can have an end time with a second scene, e.g. 22:00 → *Night*, 07:00 → *Day*.
+  Each action has a delay (0 s … 24 h): the scene follows that much later, and the opposite event
+  in the meantime (input signal back, the source plays again, the device reconnects, the ADI-2 goes
+  off) drops it. Waiting actions are shown with a countdown and are not kept across a restart.
 - **Sleep timer:** 15 … 90 minutes or any time up to 24 h. The chosen outputs fade down by 40 dB
   over the fade time, are muted, and get their volume back, so unmuting plays as before.
 
@@ -401,7 +481,7 @@ bluetoothctl show                            # Bluetooth adapter
 | `the audio service … is not running` | `sudo systemctl restart adi2-pi-audio`, check its log. |
 | Bluetooth headphones connected but silent | Bluetooth source is *off*, or the selected output is muted before its DSP. |
 | Trigger: `GPIO3 is in use` | I²C is on (UPS HAT or another HAT): choose another *Trigger input* GPIO. |
-| UPS HAT: `no UPS HAT found` / `I2C is off` | `sudo i2cdetect -y 1` should list 2d, 42 or 43; run the installer again (`--with-ups`). |
+| UPS HAT: `no UPS HAT found` / `I2C is off` | `sudo i2cdetect -y 1` should list 2d, 42 or 43; run the installer again with `--with-ups`. |
 | Page asks for an access key | A key is set (System → Access key). Forgotten: remove `"access"` from `/var/lib/adi2-pi/settings.json` and `sudo systemctl restart adi2-pi`. |
 | MQTT: `wrong user name or password` / `not authorised` | Check the user on the MQTT server (Home Assistant: Mosquitto add-on, a Home Assistant user). |
 
