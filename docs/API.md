@@ -171,7 +171,7 @@ before (routine re-reads left out), `what` in plain words such as `store EQ pres
 { "t": "receiver", "id": "squeezelite", "enabled": true, "server": "lms.local" }  // streaming receiver on/off, server ('' = automatic)
 { "t": "routing", "action": "switch", "key": "node:93" }            // make a playing source the heard one
 { "t": "routing", "action": "mode", "value": "newest" }            // newest | mix
-{ "t": "routing", "action": "rate", "value": 96000 }               // 0 = follow what plays, or 44100 … 192000
+{ "t": "routing", "action": "rate", "value": 96000 }               // 0 = follow what plays, or 44100 … 192000; an idle ADI-2 is opened at a fixed rate
 { "t": "routing", "action": "usb", "value": { "ph34": false } }    // switch these outputs to USB while the Pi plays
 { "t": "inputPriority", "enabled": true, "order": ["aes", "analog"], "outputs": { "line": true, "ph34": false }, "delaySec": 2 } // see Input priority
 { "t": "trigger", "enabled": true, "delaySec": 10, "source": "usb" } // shut down with the ADI-2 (10 | 30 | 60 | 300 s; usb | gpio)

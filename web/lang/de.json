@@ -151,7 +151,6 @@
   "estimated from the voltage": "aus der Spannung geschätzt",
   "Every change ADI-2-Pi sent to the ADI-2 since it started, and where it came from. Reading the unit’s settings isn’t listed.": "Jede Änderung, die ADI-2-Pi seit dem Start an den ADI-2 gesendet hat, und woher sie kam. Das Auslesen der Geräteeinstellungen ist nicht aufgeführt.",
   "everything": "alles",
-  "Everything is converted to this rate, so the ADI-2 never has to switch (it mutes briefly when it does).": "Alles wird auf diese Rate gewandelt, sodass der ADI-2 nie umschalten muss (beim Umschalten ist er kurz stumm).",
   "Everything that plays is heard at once.": "Alles, was spielt, ist gleichzeitig zu hören.",
   "Factory defaults loaded": "Werkseinstellungen geladen",
   "Fade": "Ausblenden",
@@ -450,7 +449,6 @@
   "the ADI-2 is switched on or reconnects": "der ADI-2 eingeschaltet oder neu verbunden wird",
   "The ADI-2 runs at": "Der ADI-2 läuft mit",
   "The ADI-2 stopped answering": "Der ADI-2 antwortet nicht mehr",
-  "The ADI-2 switches to the rate of what plays – 44.1 kHz for AirPlay and Bluetooth, up to 192 kHz from UPnP, Squeezelite or Roon. It mutes briefly when it switches.": "Der ADI-2 schaltet auf die Rate dessen, was spielt – 44,1 kHz bei AirPlay und Bluetooth, bis 192 kHz von UPnP, Squeezelite oder Roon. Beim Umschalten ist er kurz stumm.",
   "The ADI-2's USB audio device was not found on the Pi.": "Das USB-Audiogerät des ADI-2 wurde auf dem Pi nicht gefunden.",
   "the analog input": "den Analogeingang",
   "The audio service (adi2-pi-audio) is not running, so the receivers wait for it.": "Der Audiodienst (adi2-pi-audio) läuft nicht, die Empfänger warten darauf.",
@@ -900,5 +898,7 @@
   "Outputs toggled": "Ausgänge umgeschaltet",
   "Toggle": "Umschalten",
   "as the unit’s Toggle Ph/Line function; which outputs switch is set under Toggle Phones / Line": "wie die Funktion Toggle Ph/Line des Geräts; welche Ausgänge umschalten, legt Toggle Phones / Line fest",
-  "Actions run while ADI-2-Pi runs and the ADI-2 is connected. Times are the Pi’s local time. A time action with an end time applies a second scene then. Digital input signal: AES and the SPDIF input chosen under SPDIF In (coax or optical).": "Aktionen laufen, solange ADI-2-Pi läuft und der ADI-2 verbunden ist. Zeiten sind die Ortszeit des Pi. Eine Zeitaktion mit Endzeit wendet dann eine zweite Szene an. Digitales Eingangssignal: AES und der unter SPDIF In gewählte SPDIF-Eingang, (koaxial oder optisch)."
+  "Actions run while ADI-2-Pi runs and the ADI-2 is connected. Times are the Pi’s local time. A time action with an end time applies a second scene then. Digital input signal: AES and the SPDIF input chosen under SPDIF In (coax or optical).": "Aktionen laufen, solange ADI-2-Pi läuft und der ADI-2 verbunden ist. Zeiten sind die Ortszeit des Pi. Eine Zeitaktion mit Endzeit wendet dann eine zweite Szene an. Digitales Eingangssignal: AES und der unter SPDIF In gewählte SPDIF-Eingang, (koaxial oder optisch).",
+  "Everything the Pi plays is converted to this rate, so the ADI-2 never has to switch (it mutes briefly when it does). On USB the Pi sets the ADI-2's rate, also for the analog input; with Clock Source AES or SPDIF the unit follows that input instead.": "Alles, was der Pi spielt, wird auf diese Rate gewandelt, sodass der ADI-2 nie umschalten muss (beim Umschalten ist er kurz stumm). Über USB bestimmt der Pi die Rate des ADI-2, auch für den Analogeingang; mit Clock Source AES oder SPDIF folgt das Gerät stattdessen diesem Eingang.",
+  "The ADI-2 switches to the rate of what plays – 44.1 kHz for AirPlay and Bluetooth, up to 192 kHz from UPnP, Squeezelite or Roon – and stays there afterwards. It mutes briefly when it switches.": "Der ADI-2 schaltet auf die Rate dessen, was spielt – 44,1 kHz bei AirPlay und Bluetooth, bis 192 kHz von UPnP, Squeezelite oder Roon – und bleibt danach dabei. Beim Umschalten ist er kurz stumm."
 }

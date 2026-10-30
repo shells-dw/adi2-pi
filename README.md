@@ -141,10 +141,14 @@ are English.
 
 ### Sample rate
 
-On USB, the host sets the ADI-2's sample rate. With the audio service, the rate follows the
-playing source or is fixed on the Pi Playback tab (PipeWire `clock.force-rate`). Without the
-audio service (`--no-bluetooth`), the Device tab sets it by opening the playback device at the
-selected rate (`aplay`).
+On USB, the host sets the ADI-2's sample rate, also for the analog input (Clock Source INT);
+the unit's own Sample Rate menu is not available then, and the MIDI table lists the rate as
+display only. With the audio service, the rate follows the playing source or is fixed on the Pi
+Playback or Device tab (PipeWire `clock.force-rate`); with a fixed rate, ADI-2-Pi also plays a
+third of a second of silence to the idle ADI-2 when the unit reports another rate, so it switches
+right away (once per combination – a unit clocked from AES or SPDIF keeps that input's rate).
+Without the audio service (`--no-bluetooth`), the Device tab sets it by opening the playback
+device at the selected rate (`aplay`).
 
 ### Bluetooth
 
@@ -189,8 +193,9 @@ ADI-2 are not affected.
 
 - **Several sources:** *newest* (default) – the most recently started source is heard, the others
   are muted until it stops; *Switch to this* selects another one. *Mix* plays all.
-- **Sample rate:** *Follow what plays* (default) or a fixed rate from 44.1 to 192 kHz; with a
-  fixed rate, PipeWire resamples all sources.
+- **Sample rate** (also on the Device tab): *Follow what plays* (default; the unit stays at the
+  last rate afterwards) or a fixed rate from 44.1 to 192 kHz; with a fixed rate, PipeWire resamples
+  all sources and the ADI-2 is switched right away (see Sample rate above).
 - **USB while the Pi plays** (Line Out, Phones 3/4; default on): when a source starts, the
   output's Source is set to USB 1/2; 10 s after the last source stops, the previous Source is
   restored. An output whose Source is changed manually during playback is not restored. The

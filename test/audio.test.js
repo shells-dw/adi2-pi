@@ -177,3 +177,44 @@ test('newest source wins, switch back, mix, fixed sample rate', { skip: !canRun 
     spawnSync('pkill', ['-f', rt]);
   }
 });
+
+test('fixed sample rate: opens the idle ADI-2 once so it switches now', { skip: !canRun && 'PipeWire tools missing' }, async () => {
+  const rt = fs.mkdtempSync(path.join(os.tmpdir(), 'adi2pi-rate-'));
+  const env = { ...process.env, XDG_RUNTIME_DIR: rt };
+  const fx = spawn(FIXTURE, [rt], { env, stdio: ['ignore', 'pipe', 'ignore'], detached: true });
+  await new Promise((r) => fx.stdout.on('data', (d) => { if (/ready/.test(String(d))) r(); }));
+  const settings = { bluetooth: { outSource: 'off' }, routing: { mode: 'newest', rate: 48000 } };
+  const dev = fakeDev();
+  dev.vals['12.16'] = 0; // the unit reports 44.1 kHz
+  const logged = [];
+  const log = { ...quiet, info: (m) => logged.push(m), warn: (m) => logged.push(m) };
+  const audio = new Audio({ log, dev, getSettings: () => settings, env: { XDG_RUNTIME_DIR: rt }, pollMs: 200 });
+  const calls = [];
+  const run = audio.run;
+  audio.run = (cmd, args) => { if (cmd === 'pw-play') calls.push(args); return run(cmd, args); };
+  let seenOwn = false;
+  try {
+    audio.start();
+    await until(() => audio.status().available && audio.status().forceRate === 48000);
+    await until(() => logged.some((m) => /opened at 48000 Hz/.test(m)));
+    assert.strictEqual(calls.length, 1);
+    assert.ok(calls[0].includes('alsa_output.usb-RME_ADI-2_Pro_12345-00.analog-stereo'), 'played to the ADI-2');
+    for (let i = 0; i < 10; i++) { if ((audio.status().sources || []).length) seenOwn = true; await sleep(100); }
+    assert.strictEqual(seenOwn, false, 'the silence is not a source (USB while the Pi plays ignores it)');
+    // the unit didn't switch (e.g. clocked from a digital input): not tried again
+    await sleep(1000);
+    assert.strictEqual(calls.length, 1);
+    // the unit reports 48 kHz: nothing to do; another wanted rate: tried once more
+    dev.vals['12.16'] = 1;
+    audio.refresh();
+    await sleep(600);
+    assert.strictEqual(calls.length, 1);
+    settings.routing.rate = 96000;
+    audio.refresh();
+    await until(() => calls.length === 2);
+  } finally {
+    audio.stop();
+    try { process.kill(-fx.pid, 'SIGTERM'); } catch { /* gone */ }
+    spawnSync('pkill', ['-f', rt]);
+  }
+});

@@ -1708,6 +1708,37 @@
 
   const RATES = [44100, 48000, 88200, 96000, 176400, 192000, 352800, 384000, 705600, 768000];
   const kHz = (r) => `${(r / 1000).toLocaleString('en', { maximumFractionDigits: 1 })} kHz`;
+  /**
+   * Sample rate with the audio service (Pi Playback and Device tab): follow what plays, or fixed –
+   * then the Pi also opens the idle ADI-2 at that rate so it switches right away (lib/audio.js).
+   * Updates itself; build it once per page.
+   */
+  function routingRateCard() {
+    const sel = h('select', { 'aria-label': tr('Sample rate') },
+      [[0, tr('Follow what plays')], ...[44100, 48000, 88200, 96000, 176400, 192000].map((r) => [r, tr('Always {0}', [kHz(r)])])].map(([v, x]) => h('option', { value: v, text: x })));
+    sel.addEventListener('change', () => send({ t: 'routing', action: 'rate', value: Number(sel.value) })
+      .then((m) => { S.routing = m.routing; for (const fn of rtSubs) fn(); sel.blur(); }).catch(() => show()));
+    const now = h('div', { class: 'ctl num' }, '–');
+    const note = h('p', { class: 'hint help' });
+    function show() {
+      const rt = S.routing || {};
+      if (document.activeElement !== sel) sel.value = String(rt.rate || 0);
+      const sr = S.p.get(key(12, SEC.device.srate.idx));
+      const unitRate = sr !== undefined && RATES[sr] ? RATES[sr] : null;
+      now.textContent = rt.current ? kHz(rt.current) : unitRate ? kHz(unitRate) : '–';
+      note.textContent = rt.rate
+        ? tr('Everything the Pi plays is converted to this rate, so the ADI-2 never has to switch (it mutes briefly when it does). On USB the Pi sets the ADI-2\'s rate, also for the analog input; with Clock Source AES or SPDIF the unit follows that input instead.')
+        : tr('The ADI-2 switches to the rate of what plays – 44.1 kHz for AirPlay and Bluetooth, up to 192 kHz from UPnP, Squeezelite or Roon – and stays there afterwards. It mutes briefly when it switches.');
+    }
+    rtSubs.add(show);
+    sub(key(12, SEC.device.srate.idx), show);
+    show();
+    return card(tr('Sample rate'),
+      h('div', { class: 'row' }, h('div', { class: 'lab' }, tr('The ADI-2 runs at')), h('div', { class: 'ctl' }, sel)),
+      h('div', { class: 'row' }, h('div', { class: 'lab' }, tr('Now')), now),
+      note);
+  }
+
   function usbRateCard() {
     const sel = h('select', { 'aria-label': tr('Sample rate') },
       h('option', { value: '', text: tr('Choose…') }), ...RATES.map((r) => h('option', { value: r, text: kHz(r) })));
@@ -1751,7 +1782,7 @@
     const lay = sectionLayout('device');
     lay.set([
       ...['mode', 'phones', 'dsd', 'display', 'power'].map((g) => sec(groupCard('device', 'device', g, null, undefined, [], g === 'phones' ? [toggleOutputsRow()] : []), { icon: ICONS[g], summary: g === 'mode' && available(SEC.device.basic) ? () => valueName('device', 'basic') : null })),
-      S.routing && S.routing.available ? null : sec(usbRateCard(), { icon: 'clock' }), // with the audio service: Pi Playback tab
+      sec(S.routing && S.routing.available ? routingRateCard() : usbRateCard(), { icon: 'clock', summary: () => (S.routing && S.routing.available ? (S.routing.rate ? kHz(S.routing.rate) : tr('follows what plays')) : '') }),
       sec(setupsCard(), { icon: 'list', summary: () => tr('{0} setups', [9]) }),
     ]);
     return lay.el;
@@ -1950,6 +1981,7 @@
     wrap.classList.add('rt-page');
     const act = (msg) => send({ t: 'routing', ...msg }).then((m) => { S.routing = m.routing; for (const fn of rtSubs) fn(); }).catch(() => {});
     const track = trackCard();
+    const rateCard = routingRateCard();
     function draw() {
       const rt = S.routing;
       if (!rt) { lay.set([], h('div', { class: 'empty' }, h('p', null, tr('Waiting for ADI-2-Pi…')))); return; }
@@ -1969,19 +2001,6 @@
       modeSel.addEventListener('change', () => act({ action: 'mode', value: modeSel.value }));
       const now = card(tr('Sources'), list,
         h('div', { class: 'row' }, h('div', { class: 'lab' }, tr('When a second source starts'), h('small', null, rt.mode === 'newest' ? tr('The others are muted until it stops; then the one before is heard again.') : tr('Everything that plays is heard at once.'))), h('div', { class: 'ctl' }, modeSel)));
-
-      // ---- sample rate
-      const rateSel = h('select', { 'aria-label': tr('Sample rate') },
-        [[0, tr('Follow what plays')], ...[44100, 48000, 88200, 96000, 176400, 192000].map((r) => [r, tr('Always {0}', [kHz(r)])])].map(([v, x]) => h('option', { value: v, text: x, selected: rt.rate === v })));
-      rateSel.addEventListener('change', () => act({ action: 'rate', value: Number(rateSel.value) }));
-      const sr = S.p.get(key(12, SEC.device.srate.idx));
-      const unitRate = sr !== undefined && RATES[sr] ? RATES[sr] : null;
-      const rateCard = card(tr('Sample rate'),
-        h('div', { class: 'row' }, h('div', { class: 'lab' }, tr('The ADI-2 runs at')), h('div', { class: 'ctl' }, rateSel)),
-        h('div', { class: 'row' }, h('div', { class: 'lab' }, tr('Now')), h('div', { class: 'ctl num' }, rt.current ? kHz(rt.current) : unitRate ? kHz(unitRate) : '–')),
-        h('p', { class: 'hint help' }, rt.rate
-          ? tr('Everything is converted to this rate, so the ADI-2 never has to switch (it mutes briefly when it does).')
-          : tr('The ADI-2 switches to the rate of what plays – 44.1 kHz for AirPlay and Bluetooth, up to 192 kHz from UPnP, Squeezelite or Roon. It mutes briefly when it switches.')));
 
       // ---- outputs: their Source, and switching it to USB while the Pi plays
       const au = rt.auto;
