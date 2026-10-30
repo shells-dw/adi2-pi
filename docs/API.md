@@ -38,7 +38,7 @@ The unit's device IDs map to models: 113 = `dac`, 114 = `pro` (also Pro EX), 115
 {
   "api": 1, "schema": "1",
   "models": { "113": "dac", "114": "pro", "115": "se" },          // device id → model key
-  "modelNames": { "dac": "ADI-2 DAC", "pro": "ADI-2 Pro / Pro EX", "se": "ADI-2/4 Pro SE / Pro EX" },
+  "modelNames": { "dac": "ADI-2 DAC", "pro": "ADI-2 Pro / Pro EX", "se": "ADI-2/4 Pro SE / Pro EX", "se-ex": "ADI-2/4 Pro EX" },
   "channels": [
     { "key": "line", "name": "Line Out", "short": "LINE", "addr": 3, "eq": 4, "eqR": 5, "kind": "output", "line": true },
     { "key": "ph12", "name": "Phones 1/2", "dacName": "Phones", "short": "PH 1/2", "addr": 6, "eq": 7, "eqR": 8, "kind": "output" },
@@ -62,19 +62,25 @@ A parameter:
 | Field | |
 |---|---|
 | `id`, `label`, `idx` | name, display label, index at the channel's address |
-| `type` | `level` (number), `toggle` (0/1), `select` (index into `names`) |
+| `type` | `level` (number), `toggle` (0/1), `select` (value = index into `names` + `first`) |
 | `group` | heading it belongs to (`groups`) |
 | `scale` | display value = protocol integer × `scale` (default 1) |
 | `min`, `max`, `step`, `unit`, `decimals` | `level` range and display, in display units |
 | `log` | `level` best shown on a log scale (frequencies) |
-| `names` | value names of a `select`: a list, or an object keyed by model (`pro`, `se`, `dac`) or by output type (`line`, `phones`, each again keyed by model) |
+| `names` | value names of a `select`: a list, or an object keyed by profile (see below) or by output type (`line`, `phones`, each again keyed by profile) |
+| `first` | value of a `select`'s first name, by profile (default 0; `inref` on the ADI-2/4 Pro EX: −6) |
 | `hide` | select values that exist but aren't offered (EQ Preset 22 = clear) |
-| `only` / `not` | models that have / don't have the parameter |
+| `only` / `not` | profiles that have / don't have the parameter |
 | `lineOnly` | Line Out only |
 | `phonesLabel` | label on the phones outputs (`ref`: Hi-Power) |
 | `readonly` | can't be set (`srate`) |
 | `band`, `role` | EQ band 1–5 and `gain` / `freq` / `q` |
 | `note` | what a value means where the label doesn't say it |
+
+Profiles: `device.profile` is the model plus what changes the value names – `-ex` for the
+ADI-2/4 Pro EX (device revision 1 in the status message), `@dac` while Basic Mode is DAC (Source
+lists SPDIF coax and optical separately). Per-profile tables are looked up most specific first:
+`se-ex@dac` → `se-ex@dac`, `se@dac`, `se-ex`, `se`; a plain model is a profile too.
 
 Resolving a name: `device` → address 12 and `params.device`; an EQ id → the channel's `eq` or
 `eqR`; otherwise the channel's `addr` and `params.output` or `params.input` by `kind`. Channel
@@ -127,7 +133,7 @@ Standard WebSocket libraries answer by themselves.
 | `midi` | `dir` (`rx`/`tx`), `hex` | raw SysEx, only after `monitor` |
 | `ok` / `err` | `rid`, `applied`, `errors?` / `status`, `error` | replies |
 
-`device` object: `{ connected, ready, answering, id, model, modelName, port, card, problem }`.
+`device` object: `{ connected, ready, answering, id, model, profile, modelName, port, card, problem }`.
 `ready` turns true once all settings have been read. While no unit is connected, `p` is empty,
 `setups` holds nine empty names, `eqPresets` twenty empty slots and `unitStatus` is `null`; after a
 reconnect everything is read from the unit again and arrives as one `p` broadcast. `answering` turns false when the unit's
@@ -200,6 +206,7 @@ before (routine re-reads left out), `what` in plain words such as `store EQ pres
 { "t": "restore", "backup": { … }, "parts": { "values": true, "eqPresets": true, "setups": true, "settings": true } }
 { "t": "get" }                                                     // full state again
 { "t": "refresh" }                                                 // re-read everything from the unit
+{ "t": "toggleOutputs" }                                           // the unit's Toggle Ph/Line function (device parameter 63)
 { "t": "settings", "patch": { "limits": { "ph12": -6 } } }         // bridge settings, see below
 { "t": "monitor", "on": true }                                     // receive raw MIDI traffic
 { "t": "raw", "hex": "F0 00 20 0D 72 03 09 F7" }                   // send raw SysEx (RME messages only)
@@ -229,6 +236,7 @@ While the unit is not connected or not answering, sets are refused with 409.
 | `POST /api/set` | same as the WebSocket `set` without `t` | `{ t: "ok", applied, errors? }` |
 | `POST /api/setup` | `{ action, n, name? }` (`load`, `save`, `rename`, `factory`) | `{ t: "ok" }` |
 | `POST /api/refresh` | | `{ t: "ok" }` |
+| `POST /api/toggle-outputs` | | `{ t: "ok" }`; device parameter 63 (receive only), which outputs switch is set under Toggle Phones / Line; the state is read back after 0.6 s |
 | `GET /api/eqpresets` | | the unit's 20 EQ presets |
 | `POST /api/eqpresets/store` | `{ n, name?, L, R?, dual? }` | stores preset `n` on the unit |
 | `POST /api/eqpresets/rename` | `{ n, name }` | renames preset `n` |
@@ -322,16 +330,25 @@ received index 1).
 ## Status message
 
 The unit sends a status message about once a second. `unitStatus` is the message as hex bytes
-(`state.unitStatus`, `status.unitStatus`), `info` (`state.statusInfo`) holds what RME's table documents:
-`activeOut` (bits 1–0 of byte 6), `revision`, `activeLine`, `ph34Active` (RME's name for bit 6;
-it does not indicate playback on Phones 3/4), `mode` (current device mode), `balanced`, `dsd`,
-`protocol`, the two 28-bit words `io1` / `io2` (undocumented by RME) and `extra` (bytes the ADI-2
-Pro EX sends beyond the documented length) and `inputs`: `{ aes, spdif }` – `true` while the
-AES input, or the SPDIF input chosen under SPDIF In (coax or optical), receives a valid digital
-signal (also when the source is stopped or muted), `false` without. Decoded from IOStatus1 bits
-23+21 (AES) and 24+22 (SPDIF), tested on the ADI-2 Pro EX; `null` on other models. `jacks`:
-`{ ph12, ph34 }` – `true` while a plug is in that headphone jack (IOStatus1 bit 0 / bit 6, tested on
-the ADI-2 Pro EX; `null` on other models). Device parameter `srate` (index 16, read-only) is
+(`state.unitStatus`, `status.unitStatus`), `info` (`state.statusInfo`) holds what RME's MIDI table v1.0 documents:
+`activeOut` (bits 1–0 of byte 6), `revision` (1 on an ADI-2/4: Pro EX), `activeLine`, `ph34Active`
+(RME's name for bit 6; it does not indicate playback on Phones 3/4), `mode` (current device mode),
+`balanced`, `dsd`, `protocol`, `eightChannel`, `dacModeRateCode` (byte 17 bits 4–0, no code list
+in the table), `penta` (Penta plug, ADI-2/4), `bitTest`, `dcLine` / `dcPhones` (DC detected; the
+byte-17/18 fields are `null` when the unit sends fewer status bytes), the two 28-bit words `io1` / `io2` (IOStatus1/2, bit 0 = bit 0 of the
+first byte, as in the table) and what they hold: `aes` / `spdif`
+`{ lock, sync, rate, bits24, professional, emphasis, nonAudio, dsd }` (`rate` in Hz while locked;
+`spdif.optical`: the SPDIF input in use is the optical one), `adat`, `clock` (`internal`, `AES`,
+`SPDIF`), `internalRate` (Hz, by the same codes as the inputs; `null` beyond 192 kHz), `highLoad`
+(two booleans), `phones.ph12` / `phones.ph34` `{ plug, overCurrent, dcError }`, `dsdOn`
+`{ usb, line, phones, digital }`, `powerFail`; `extra` holds bytes beyond the documented length.
+`inputs`: `{ aes, spdif, spdifOptical, aesRate, spdifRate }` – `aes` / `spdif` are `true`
+while the AES input, or the SPDIF input chosen under SPDIF In, is locked to a valid signal (also
+when the source is stopped or muted), `false` without; the previous value stays for the moment of
+a sample rate change; on the ADI-2 DAC `aes` is `false` (no AES input). `adat` (IOStatus1 bit 5)
+is passed on as is; in the ADI-2 Pro EX captures it is set at times with nothing connected. `jacks`:
+`{ ph12, ph34 }` – a plug is in that headphone jack; `null` on the ADI-2 DAC (the table does not
+say which of its jacks the two bits are). Verified on the ADI-2 Pro EX only. Device parameter `srate` (index 16, read-only) is
 the current sample rate: 0–9 = 44.1, 48, 88.2, 96, 176.4, 192, 352.8, 384, 705.6, 768 kHz.
 
 ## Bluetooth
@@ -422,7 +439,7 @@ own Auto stays in USB mode while the Pi is connected).
   "order": ["aes", "analog"],              // 1…4 of aes, spdif, analog, usb; each once
   "outputs": { "line": true, "ph34": true },
   "delaySec": 2,                           // 0…86400: signal there / gone this long before switching
-  "available": true,                       // false on models without AES/SPDIF detection (not the ADI-2 Pro)
+  "available": true,                       // false when the bridge has no unit support for it
   "reason": null,
   "signal": { "aes": true, "spdif": false }, // from statusInfo.inputs; null until the first status
   "current": "aes",                        // input the outputs were last switched to (null: not yet)
@@ -432,9 +449,12 @@ own Auto stays in USB mode while the Pi is connected).
 ```
 
 - AES and SPDIF come from the status message (`statusInfo.inputs`; SPDIF = the input chosen under
-  SPDIF In). `analog` and `usb` have no detection and count as available, so entries after the
-  first of them are never used. If no entry is available, nothing changes.
-- Source values sent: AES, SPDIF, Analog, USB 1/2 of the output's Source list (origin `input`).
+  SPDIF In; the ADI-2 DAC has no AES, so `aes` never has a signal there). `analog` and `usb` have
+  no detection and count as available, so entries after the first of them are never used. If no
+  entry is available, nothing changes.
+- Source values sent: AES, SPDIF, Analog, USB 1/2 of the output's Source list (origin `input`);
+  with Basic Mode DAC and on the ADI-2 DAC, SPDIF c / SPDIF coax or Optical, whichever the unit
+  receives (`spdifOptical`), and USB on the ADI-2 DAC.
 - Switches only when the first available input changes; a Source set otherwise stays until then.
 - An output held on USB while the Pi plays (`routing.held`) is not switched; its `held` value is set
   to the new input instead.
@@ -631,7 +651,7 @@ An action (`rules`) applies a scene when something happens. `when.type`:
 | `bt-connect` / `bt-disconnect` | `address` (or `any`) | a Bluetooth device connects / disconnects |
 | `play-start` / `play-stop` | `source`: `any`, `bluetooth`, `airplay`, `spotify`, `upnp`, `squeezelite`, `snapcast`, `roon` | that source starts / stops playing on the Pi; `any`: the first source starts / the last one stops |
 | `time` | `at` `HH:MM`, `days` 0 (Sunday) … 6, optional `until` `HH:MM` | at that minute, Pi local time. With `until`, the rule's `sceneEnd` is applied at that minute (on the same day, or the next when `until` < `at`) |
-| `input-signal` / `input-lost` | `input`: `any`, `aes`, `spdif` | the digital input gets / loses a valid signal (`statusInfo.inputs`; Pro models) |
+| `input-signal` / `input-lost` | `input`: `any`, `aes`, `spdif` | the digital input gets / loses a valid signal (`statusInfo.inputs`) |
 | `idle` | `minutes` 1 … 720 | the Pi has played nothing for that long; once per quiet period |
 
 Optional `delaySec` (whole seconds, 0 … 86400; absent = 0): the scene is applied that much later.
@@ -713,6 +733,7 @@ doesn't have are skipped.
 | `…/<ch>/<id>/set` | change it, same format |
 | `…/setup/set` | load a setup: number 1–9 or its name |
 | `…/scene/<id>/set` | apply a scene |
+| `…/toggle/set` | toggle the outputs (any payload; button "Toggle outputs") |
 | `…/sleep/state`, `…/sleep/set` | minutes left; start (minutes), 0 = cancel |
 | `…/<ch>/profile/state`, `…/<ch>/profile/set` | headphone profile applied last to the output (name, `—` = none); apply by name, `—` clears |
 | `…/nowplaying/state`, `…/nowplaying/attributes` | `Artist – Title` of what plays (empty = nothing); attributes JSON `{ source, state, title, artist, album, duration, sender }` |

@@ -12,6 +12,7 @@ const LINE = '3.1', PH34 = '9.1';
 function fakes({ line = 0, ph34 = 3 } = {}) {
   const dev = new EventEmitter();
   dev.model = 'pro';
+  dev.profile = 'pro';
   dev.state = new Map([[LINE, line], [PH34, ph34]]);
   dev.sent = [];
   dev.info = () => ({ connected: true, ready: true, answering: true });

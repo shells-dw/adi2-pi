@@ -1,7 +1,7 @@
 {
  "api": 1,
  "schema": "1",
- "about": "ADI-2 parameters for the ADI-2-Pi API. Sources: RME MIDI table v0.2, ADI-2 Pro EX manual v4.0, ADI-2 Remote manual v2.2, and parameters reported by an ADI-2 Pro EX. Values are integers as the unit uses them; display value = value * scale. EQ frequencies are plain Hz. 'names' lists the value names, index = value.",
+ "about": "ADI-2 parameters for the ADI-2-Pi API. Sources: RME MIDI table v1.0 (2026-10-29), ADI-2 Pro EX manual v4.0, ADI-2 Remote manual v2.2, and parameters reported by an ADI-2 Pro EX. Values are integers as the unit uses them; display value = value * scale. EQ frequencies are plain Hz. 'names' lists the value names: names[i] is value i + first (first defaults to 0). Per-model tables (names, first, only, not) use profile keys: the model, '-ex' for the ADI-2/4 Pro EX, '@dac' while Basic Mode is DAC – e.g. 'se-ex@dac' looks up se-ex@dac, se@dac, se-ex, se.",
  "models": {
   "113": "dac",
   "114": "pro",
@@ -10,7 +10,8 @@
  "modelNames": {
   "dac": "ADI-2 DAC",
   "pro": "ADI-2 Pro / Pro EX",
-  "se": "ADI-2/4 Pro SE / Pro EX"
+  "se": "ADI-2/4 Pro SE / Pro EX",
+  "se-ex": "ADI-2/4 Pro EX"
  },
  "setups": 9,
  "eqDefaults": {
@@ -184,6 +185,33 @@
       "USB 1/2",
       "USB 3/4"
      ],
+     "se-ex": [
+      "Auto",
+      "AES",
+      "SPDIF",
+      "Analog",
+      "USB 1/2",
+      "USB 3/4",
+      "ADAT 3/4"
+     ],
+     "pro@dac": [
+      "Auto",
+      "AES",
+      "SPDIF c",
+      "Optical",
+      "Analog",
+      "USB 1/2",
+      "USB 3/4"
+     ],
+     "se@dac": [
+      "Auto",
+      "AES",
+      "SPDIF c",
+      "Optical",
+      "Analog",
+      "USB 1/2",
+      "USB 3/4"
+     ],
      "dac": [
       "Auto",
       "SPDIF coax",
@@ -324,7 +352,8 @@
       "Sharp",
       "Slow",
       "NOS",
-      "SD LD"
+      "SD LD",
+      "Brickwall"
      ]
     }
    },
@@ -480,7 +509,23 @@
       "+13 dBu",
       "+19 dBu",
       "+24 dBu"
+     ],
+     "se-ex": [
+      "-35 dBu",
+      "-29 dBu",
+      "-23 dBu",
+      "-17 dBu",
+      "-11 dBu",
+      "-5 dBu",
+      "+1 dBu",
+      "+7 dBu",
+      "+13 dBu",
+      "+19 dBu",
+      "+24 dBu"
      ]
+    },
+    "first": {
+     "se-ex": -6
     }
    },
    {
@@ -576,6 +621,11 @@
      "se": [
       "RME",
       "None"
+     ],
+     "se-ex": [
+      "ADC",
+      "RME",
+      "None"
      ]
     }
    },
@@ -588,14 +638,25 @@
     "only": [
      "se"
     ],
-    "names": [
-     "OFF",
-     "+14 dB",
-     "+20 dB",
-     "+26 dB",
-     "+32 dB",
-     "+38 dB"
-    ]
+    "names": {
+     "se": [
+      "OFF",
+      "+14 dB",
+      "+20 dB",
+      "+26 dB",
+      "+32 dB",
+      "+38 dB"
+     ],
+     "se-ex": [
+      "OFF",
+      "0 dB",
+      "+14 dB",
+      "+20 dB",
+      "+26 dB",
+      "+32 dB",
+      "+38 dB"
+     ]
+    }
    },
    {
     "id": "riaamono",
@@ -605,6 +666,20 @@
     "group": "input",
     "only": [
      "se"
+    ]
+   },
+   {
+    "id": "balimp",
+    "label": "Balanced Impedance",
+    "idx": 13,
+    "type": "select",
+    "group": "input",
+    "only": [
+     "se-ex"
+    ],
+    "names": [
+     "94 kΩ",
+     "47 kΩ"
     ]
    },
    {
@@ -1250,6 +1325,22 @@
     ]
    },
    {
+    "id": "mutelinevs",
+    "label": "Mute Line vs.",
+    "idx": 1,
+    "type": "select",
+    "group": "phones",
+    "only": [
+     "dac"
+    ],
+    "names": [
+     "OFF",
+     "vs. Phones",
+     "Toggle Ph/Line",
+     "Toggle plugged"
+    ]
+   },
+   {
     "id": "dsddet",
     "label": "DSD Detection",
     "idx": 3,
@@ -1489,7 +1580,10 @@
       "EQ Preset 6",
       "EQ Preset 7",
       "EQ Preset 8",
-      "EQ Preset 9"
+      "EQ Preset 9",
+      "RIAA Mode +",
+      "RIAA Mode -",
+      "RIAA Mono B."
      ],
      "dac": [
       "Default",
@@ -1671,7 +1765,10 @@
       "EQ Preset 6",
       "EQ Preset 7",
       "EQ Preset 8",
-      "EQ Preset 9"
+      "EQ Preset 9",
+      "RIAA Mode +",
+      "RIAA Mode -",
+      "RIAA Mono B."
      ],
      "dac": [
       "Default",
@@ -1853,7 +1950,10 @@
       "EQ Preset 6",
       "EQ Preset 7",
       "EQ Preset 8",
-      "EQ Preset 9"
+      "EQ Preset 9",
+      "RIAA Mode +",
+      "RIAA Mode -",
+      "RIAA Mono B."
      ],
      "dac": [
       "Default",
@@ -2035,7 +2135,10 @@
       "EQ Preset 6",
       "EQ Preset 7",
       "EQ Preset 8",
-      "EQ Preset 9"
+      "EQ Preset 9",
+      "RIAA Mode +",
+      "RIAA Mode -",
+      "RIAA Mono B."
      ],
      "dac": [
       "Default",
@@ -2217,7 +2320,10 @@
       "EQ Preset 6",
       "EQ Preset 7",
       "EQ Preset 8",
-      "EQ Preset 9"
+      "EQ Preset 9",
+      "RIAA Mode +",
+      "RIAA Mode -",
+      "RIAA Mono B."
      ],
      "dac": [
       "Default",
@@ -2403,7 +2509,10 @@
       "EQ Preset 6",
       "EQ Preset 7",
       "EQ Preset 8",
-      "EQ Preset 9"
+      "EQ Preset 9",
+      "RIAA Mode +",
+      "RIAA Mode -",
+      "RIAA Mono B."
      ],
      "dac": [
       "Default",
@@ -2589,7 +2698,10 @@
       "EQ Preset 6",
       "EQ Preset 7",
       "EQ Preset 8",
-      "EQ Preset 9"
+      "EQ Preset 9",
+      "RIAA Mode +",
+      "RIAA Mode -",
+      "RIAA Mono B."
      ],
      "dac": [
       "Default",
@@ -2665,8 +2777,7 @@
      "disabled",
      "with Setup"
     ],
-    "note": "with Setup: loading a setup also sets the volume stored in it",
-    "source": "not in RME's MIDI table v0.2; reported by the ADI-2 Pro EX: 0 = disabled, 1 = with Setup"
+    "note": "with Setup: loading a setup also sets the volume stored in it"
    }
   ]
  }

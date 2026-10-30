@@ -14,7 +14,7 @@ ADI-2/4 Pro SE / Pro EX). Runs on a Raspberry Pi connected to the unit by USB.
 - **Scenes, actions, sleep timer:** named sets of values; actions apply them on events (Bluetooth
   device connects, playback starts or stops, time of day, unit switched on); sleep timer with
   fade-out and mute.
-- **Input priority** (ADI-2 Pro models): outputs play the first input of a list that has a signal,
+- **Input priority:** outputs play the first input of a list that has a signal,
   e.g. AES, or Analog while AES has none.
 - **Backup and restore** of the unit's settings, EQ presets, setup names and ADI-2-Pi's settings.
 - **Optional access key** for the API and the web interface.
@@ -387,8 +387,9 @@ input loses its signal; this does it from the Pi.
 
 - A list of inputs (AES, SPDIF, Analog, USB 1/2), e.g. *AES, Analog* or *AES, SPDIF, Analog*. The
   chosen outputs (Line Out, Phones 3/4) get the Source of the first input that has a signal.
-- AES and SPDIF are detected from the unit's status (ADI-2 Pro models; SPDIF = the input chosen
-  under SPDIF In). Analog and USB can't be detected and count as always available, so the list
+- AES and SPDIF are detected from the unit's status (SPDIF = the input chosen under SPDIF In;
+  with Basic Mode DAC and on the ADI-2 DAC, coax or optical, whichever has the signal). Verified
+  on the ADI-2 Pro EX. Analog and USB can't be detected and count as always available, so the list
   ends with the first of them. With only AES/SPDIF in the list and neither has a signal, nothing
   changes.
 - *Delay* (default 2 s, up to 24 h): an input must have had, or lost, its signal this long before
@@ -516,22 +517,26 @@ bluetoothctl show                            # Bluetooth adapter
 
 ## Protocol
 
-RME "MIDI-Protocol for ADI-2 DAC, ADI-2 Pro and ADI-2/4 Pro SE" v0.2, extended with behaviour
-observed on an ADI-2 Pro EX:
+RME "MIDI-Protocol for RME ADI-2 DAC, ADI-2 Pro and ADI-2/4 Pro SE/EX" v1.0 (2026-10-29), extended
+with behaviour observed on an ADI-2 Pro EX:
 
-- Device IDs 0x71 (DAC), 0x72 (Pro, Pro EX), 0x73 (2/4 Pro SE; the 2/4 Pro EX is expected on the same ID, as the Pro EX kept the Pro's).
+- Device IDs 0x71 (DAC), 0x72 (Pro, Pro EX), 0x73 (2/4 Pro SE and EX; device revision 1 in the
+  status message = EX).
+- ADI-2/4 Pro EX: input Ref Level −35 … +24 dBu (values −6 … 4; below +1 dBu as digital gain),
+  DC Filter ADC/RME/none, RIAA with 0 dB, Bal. Impedance 94 k / 47 k, Source ADAT 3/4. Basic Mode
+  DAC (Pro, 2/4 Pro): Source lists SPDIF coax and optical separately. Untested on the units.
 - EQ preset store: data on addresses 13/14, then the flags word as a separate message at
   address 13 **index 2** (the unit sends it at index 1 and ignores it there on receive). B/T
   Enable (13.20) and Load B/T (13.27) must not be part of a store: the unit switches MIDI Control
   off.
 - Device parameter 16 (sample rate, read-only): index into 44.1 … 768 kHz.
-- Device parameter 62 (not in v0.2): Load Volume with Setup (0 = disabled, 1 = with Setup).
+- Device parameter 63 (Do Toggle Outputs, receive only, value 0): *Toggle outputs* on the Overview
+  and Device → Phones, `POST /api/toggle-outputs`, MQTT button.
+- Status message: the 28-bit words are numbered from the first byte's bit 0. The ADI-2 Pro EX
+  reports protocol revision 2 and sends one byte more than the table lists.
 - The ADI-2 Pro EX does not report Phones 1/2 Mute, Dim, Width, Lock Volume, Source, Mono, DA
   Filter, De-Emphasis, Loopback, DC Protection, or input Bass/Treble.
-- ADI-2/4 Pro EX (untested): its manual (v2.0) lists values the 2/4 Pro SE doesn't have and v0.2
-  doesn't number – input Ref Level −5 … −35 dBu (digital gain), RIAA 0 dB, DC Filter ADC,
-  Bal. Impedance 94 k / 47 k, Phones 3/4 Source ADAT 3/4, Remap Keys RIAA Mode + / − and RIAA
-  Mono B. Values the bridge has no name for are shown as `#<number>`; Debug → *Settings ADI-2-Pi can’t
+- Values the bridge has no name for are shown as `#<number>`; Debug → *Settings ADI-2-Pi can’t
   name yet* lists them and the parameters the bridge doesn't know.
 
 ## Development

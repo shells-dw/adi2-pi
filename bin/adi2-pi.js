@@ -4,7 +4,7 @@
  * ADI-2-Pi – network remote for RME ADI-2 series converters on a Raspberry Pi.
  *
  *   adi2-pi [--port 80] [--data /var/lib/adi2-pi] [--device /dev/snd/midiC1D0]
- *               [--mock pro|se|dac] [--host ::] [--allow-origin https://example] [--no-audio] [--no-streaming] [--verbose]
+ *               [--mock pro|se|se-ex|dac] [--host ::] [--allow-origin https://example] [--no-audio] [--no-streaming] [--verbose]
  */
 const path = require('path');
 const { Settings } = require('../lib/settings');
@@ -47,7 +47,7 @@ function parseArgs(argv) {
       case '--no-streaming': a.noStreaming = true; break;
       case '--version': console.log(version); process.exit(0); break;
       case '-h': case '--help':
-        console.log('usage: adi2-pi [--port N] [--data DIR] [--device PATH] [--mock pro|se|dac] [--host ADDR] [--allow-origin URL] [--no-audio] [--no-streaming] [--verbose]');
+        console.log('usage: adi2-pi [--port N] [--data DIR] [--device PATH] [--mock pro|se|se-ex|dac] [--host ADDR] [--allow-origin URL] [--no-audio] [--no-streaming] [--verbose]');
         process.exit(0); break;
       default:
         console.error(`unknown option ${k}`);

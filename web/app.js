@@ -61,6 +61,16 @@
   const subs = new Map();  // key → Set(fn)
   const touched = new Map(); // key → time of last local change (ignore stale echoes while dragging)
   const model = () => S.device.model || 'pro';
+  /** Model plus what changes value names ("se-ex", "pro@dac"); keys most specific first, as lib/catalog.js profileKeys. */
+  const profile = () => S.device.profile || model();
+  function profileKeys() {
+    const m = /^([a-z]+)(-ex)?(@dac)?$/.exec(profile());
+    if (!m) return [model()];
+    const keys = m[3] ? [`${m[1]}${m[2] || ''}@dac`, `${m[1]}@dac`] : [];
+    keys.push(`${m[1]}${m[2] || ''}`, m[1]);
+    return [...new Set(keys)];
+  }
+  const byProfile = (table) => { for (const k of profileKeys()) if (table[k] !== undefined) return table[k]; return undefined; };
   const key = (a, i) => `${a}.${i}`;
 
   let subScope = null;     // while set, sub() records its subscriptions here so a rebuild can drop them
@@ -106,7 +116,7 @@
     // "draft": an EQ that only lives in this page (EQ Presets editor). Never sent as such.
     CH.draft = { key: 'draft', name: tr('EQ preset'), kind: 'output', addr: 'dX', eq: 'dL', eqR: 'dR', draft: true };
   }
-  const available = (e) => !((e.only && !e.only.includes(model())) || (e.not && e.not.includes(model())));
+  const available = (e) => { const ks = profileKeys(); return !((e.only && !ks.some((k) => e.only.includes(k))) || (e.not && ks.some((k) => e.not.includes(k)))); };
   function resolve(ch, id, side = 'L') {
     if (!ch || ch === 'device') { const p = SEC.device[id]; return p && { addr: 12, idx: p.idx, param: p }; }
     const c = CH[ch];
@@ -127,9 +137,12 @@
     let n = param.names;
     if (!n) return null;
     if (!Array.isArray(n) && (n.line || n.phones)) n = channel && channel.line ? n.line : n.phones;
-    if (!Array.isArray(n)) n = n[model()] || n.pro || Object.values(n)[0];
+    if (!Array.isArray(n)) n = byProfile(n) || n.pro || Object.values(n)[0];
     return n;
   }
+  /** Value of a select's first name (names[i] is value i + base). */
+  const base = (param) => (param.first && byProfile(param.first)) || 0;
+  const nameOf = (param, channel, v) => (names(param, channel) || [])[v - base(param)];
   // keys the schema knows ("addr.idx"), and a log of changes to the ones it doesn't
   let KNOWN = null;
   function knownKeys() {
@@ -289,7 +302,7 @@
     }
   }
 
-  let lastModel = null;
+  let lastProfile = null;
   let lastReady = null;
   let lastAnswering = true;
   function setDevice(d) {
@@ -303,8 +316,8 @@
       if (S.device.connected) toast(answering ? tr('The ADI-2 answers again') : tr('The ADI-2 stopped answering'));
       for (const fn of statusSubs) fn();
     }
-    if (S.device.model !== lastModel || S.device.ready !== lastReady) {
-      lastModel = S.device.model;
+    if (profile() !== lastProfile || S.device.ready !== lastReady) {
+      lastProfile = profile();
       lastReady = S.device.ready;
       renderTabs();
       render();
@@ -399,7 +412,7 @@
     const list = names(r.param, r.channel) || [];
     const isPreset = id === 'eqpreset';
     const s = h('select', { 'aria-label': r.param.label, onchange: () => setValue(ch, id, side, Number(s.value)) },
-      list.map((n, i) => (r.param.hide && r.param.hide.includes(i) ? null : h('option', { value: i, text: isPreset ? presetLabel(i, n) : n }))));
+      list.map((n, i) => (r.param.hide && r.param.hide.includes(i) ? null : h('option', { value: i + base(r.param), text: isPreset ? presetLabel(i, n) : n }))));
     if (isPreset) presetSubs.add(() => { for (const o of s.options) o.textContent = presetLabel(Number(o.value), list[Number(o.value)] || o.textContent); });
     sub(key(r.addr, r.idx), (v) => {
       if (v === undefined) return;
@@ -451,7 +464,7 @@
     let ctl;
     if (p.readonly) {
       ctl = h('span', { class: 'num' });
-      sub(key(r.addr, r.idx), (v) => { ctl.textContent = v === undefined ? '–' : ((names(p, r.channel) || [])[v] ?? tr('value {0}', [v])); });
+      sub(key(r.addr, r.idx), (v) => { ctl.textContent = v === undefined ? '–' : (nameOf(p, r.channel, v) ?? tr('value {0}', [v])); });
     } else if (p.type === 'toggle') ctl = toggleBtn(ch, id, side);
     else if (p.type === 'select') ctl = selectBox(ch, id, side);
     else ctl = levelCtl(ch, id, side);
@@ -684,10 +697,16 @@
     return { el: root, set, close };
   }
 
-  function groupCard(ch, section, group, title, side, exclude = []) {
+  function groupCard(ch, section, group, title, side, exclude = [], extra = []) {
     const rows = S.schema.params[section].filter((p) => p.group === group && !exclude.includes(p.id) && available(p)).map((p) => paramRow(ch, p.id, side)).filter(Boolean);
-    return rows.length ? card(title || S.schema.groups[group], ...rows) : null;
+    return rows.length ? card(title || S.schema.groups[group], ...rows, ...extra) : null;
   }
+
+  /** Device parameter 63: does what the unit's Toggle Ph/Line function does. */
+  const toggleOutputs = () => send({ t: 'toggleOutputs' }).then(() => toast(tr('Outputs toggled'))).catch(() => {});
+  const toggleOutputsRow = () => h('div', { class: 'row' },
+    h('div', { class: 'lab' }, tr('Toggle outputs'), h('small', null, tr('as the unit’s Toggle Ph/Line function; which outputs switch is set under Toggle Phones / Line'))),
+    h('div', { class: 'ctl' }, h('button', { class: 'btn', disabled: !S.device.ready, onclick: toggleOutputs }, tr('Toggle'))));
 
   // ------------------------------------------------------------------ volume knob
   const VMIN = -114.5, VMAX = 6;
@@ -1077,7 +1096,7 @@
     const ref = S.p.get(key(c.addr, SEC.output.ref.idx));
     if (ref === undefined) return null;
     if (c.line) {
-      const n = (names(SEC.output.ref, c) || [])[ref];
+      const n = nameOf(SEC.output.ref, c, ref);
       const m = n && n.match(/([+-]?\d+)\s*dBu/);
       return m ? Number(m[1]) : null;
     }
@@ -1093,7 +1112,7 @@
     const r = resolve(ch, id);
     if (!r) return '–';
     const val = S.p.get(key(r.addr, r.idx));
-    return val === undefined ? '–' : ((names(r.param, r.channel) || [])[val] ?? tr('value {0}', [val]));
+    return val === undefined ? '–' : (nameOf(r.param, r.channel, val) ?? tr('value {0}', [val]));
   };
   /** Scenes whose every value is what the unit has now. */
   function matchingScenes() {
@@ -1134,7 +1153,7 @@
         const has = r && !notOnUnit(c.key, r) && S.p.get(key(r.addr, r.idx)) !== undefined;
         return { c, r, has, v: has ? S.p.get(key(r.addr, r.idx)) : null, names: has ? names(r.param, r.channel) || [] : [] };
       });
-      const srcName = (o) => (o.has ? o.names[o.v] ?? `#${o.v}` : null);
+      const srcName = (o) => (o.has ? nameOf(o.r.param, o.r.channel, o.v) ?? `#${o.v}` : null);
       // sources: what the outputs can choose (without Auto), in the unit's order
       const srcs = [];
       for (const o of outs) for (const n of o.names) if (n !== 'Auto' && !srcs.includes(n)) srcs.push(n);
@@ -1143,18 +1162,33 @@
       const np = S.nowplaying;
       const npCur = np && np.current && np.sources[np.current];
       const piPlaying = ((S.routing && S.routing.sources) || []).filter((x) => x.playing);
-      const signal = (n) => (si && si.inputs ? (n === 'AES' ? si.inputs.aes : n === 'SPDIF' ? si.inputs.spdif : undefined) : undefined);
+      // AES, SPDIF; with Basic Mode DAC the unit lists SPDIF coax and optical separately
+      const inp = si && si.inputs;
+      const signal = (n) => {
+        if (!inp) return undefined;
+        if (n === 'AES') return inp.aes;
+        if (n === 'SPDIF') return inp.spdif;
+        if (/^SPDIF c/.test(n) || n === 'Optical') return inp.spdif && (n === 'Optical') === !!inp.spdifOptical;
+        return undefined;
+      };
+      const sigRate = (n) => (n === 'AES' ? inp.aesRate : inp.spdifRate);
+      // input priority's inputs → the Source names of this unit (lib/inputprio.js _sourceValue)
+      const ipSrc = (x) => {
+        if (x === 'spdif' && !srcs.includes('SPDIF')) return inp && inp.spdifOptical ? 'Optical' : srcs.find((n) => /^SPDIF c/.test(n)) || 'SPDIF c';
+        if (x === 'usb' && !srcs.includes('USB 1/2')) return 'USB';
+        return IP_SOURCE[x];
+      };
       const srcRows = srcs.map((n) => {
         const users = outs.filter((o) => srcName(o) === n).map((o) => chName(o.c));
         const sig = signal(n);
         let detail = null;
-        if (sig === true) detail = h('span', { class: 'sp-sig on' }, h('i'), tr('signal'));
+        if (sig === true) detail = h('span', { class: 'sp-sig on' }, h('i'), tr('signal'), sigRate(n) ? ` · ${kHz(sigRate(n))}` : null);
         else if (sig === false) detail = h('span', { class: 'sp-sig' }, h('i'), tr('no signal'));
         if (n === 'USB 1/2' || n === 'USB') {
           const what = npCur && npCur.title ? `${npCur.title}${npCur.artist ? ` – ${npCur.artist}` : ''}` : piPlaying.map((x) => x.label).join(', ');
           detail = h('span', { class: 'sp-np' }, what ? [h('b', null, tr('Pi')), ' ', what] : tr('Pi · nothing playing'));
         }
-        if (ipOn && ip.order.includes(Object.keys(IP_SOURCE).find((k) => IP_SOURCE[k] === n)) && IP_SOURCE[ip.current] !== n && !users.length) {
+        if (ipOn && ip.order.includes(Object.keys(IP_SOURCE).find((k) => ipSrc(k) === n)) && ipSrc(ip.current) !== n && !users.length) {
           detail = h('span', { class: 'sp-next' }, detail, detail ? ' · ' : null, tr('in input priority'));
         }
         const active = users.length > 0 || sig === true;
@@ -1170,16 +1204,16 @@
         if (o.has) {
           const cur = srcName(o);
           const managed = ipOn && ip.outputs && ip.outputs[c.key] && ip.current;
-          const want = managed ? IP_SOURCE[ip.current] : null;
+          const want = managed ? ipSrc(ip.current) : null;
           // switched to USB while the Pi plays (Pi Playback tab): goes back by itself when it stops
           const au = S.routing && S.routing.auto;
           const piHeld = !!(au && au.held && au.held[c.key] !== null && au.held[c.key] !== undefined);
           const sel = h('select', { 'aria-label': tr('{0}: source', [chName(c)]) },
-            o.names.map((n, i) => (o.r.param.hide && o.r.param.hide.includes(i) ? null : h('option', { value: i, text: n, selected: i === o.v }))),
+            o.names.map((n, i) => (o.r.param.hide && o.r.param.hide.includes(i) ? null : h('option', { value: i + base(o.r.param), text: n, selected: i + base(o.r.param) === o.v }))),
             managed && !piHeld && cur !== want && o.names.includes(want) ? h('option', { value: 'auto', text: tr('↺ automatic: {0}', [want]) }) : null);
-          if (!o.names[o.v]) sel.append(h('option', { value: o.v, text: `#${o.v}`, selected: true }));
+          if (!srcName(o) || srcName(o).startsWith('#')) sel.append(h('option', { value: o.v, text: `#${o.v}`, selected: true }));
           sel.addEventListener('change', () => {
-            const v = sel.value === 'auto' ? o.names.indexOf(want) : Number(sel.value);
+            const v = sel.value === 'auto' ? o.names.indexOf(want) + base(o.r.param) : Number(sel.value);
             setValue(c.key, 'src', 'L', v);
             sel.blur();
           });
@@ -1189,7 +1223,7 @@
         const vol = getDisp(c.key, 'vol');
         const ref = refDbu(c);
         const muted = getDisp(c.key, 'mute');
-        const plugged = si && si.jacks ? si.jacks[c.key] : undefined; // headphone jack (Pro models)
+        const plugged = si && si.jacks ? si.jacks[c.key] : undefined; // headphone jack (ADI-2 Pro, ADI-2/4 Pro)
         return h('div', { class: 'sp-row sp-out' },
           h('span', { class: 'sp-name' }, chName(c),
             plugged ? h('span', { class: 'sp-jack', title: tr('Headphones plugged in'), 'aria-label': tr('Headphones plugged in') }, icon('headphones', 13)) : null),
@@ -1208,7 +1242,7 @@
       const ap = S.settings.activeProfile || {};
       const profs = Object.entries(ap).filter(([, id]) => id).map(([ch, id]) => `${chName(CH[ch])}: ${((S.settings.profiles || []).find((p) => p.id === id) || {}).name || '–'}`);
       if (profs.length) foot.push(h('span', { class: 'sp-f' }, icon('headphones', 13), profs.join(', ')));
-      if (ipOn && ip.pending) foot.push(h('span', { class: 'sp-f warn' }, tr('switching to {0} in {1}', [IP_SOURCE[ip.pending.to] || ip.pending.to, hmmss(ip.pending.at + ip.delaySec * 1000 - Date.now())])));
+      if (ipOn && ip.pending) foot.push(h('span', { class: 'sp-f warn' }, tr('switching to {0} in {1}', [ipSrc(ip.pending.to) || ip.pending.to, hmmss(ip.pending.at + ip.delaySec * 1000 - Date.now())])));
       const sl = S.automation && S.automation.sleep;
       if (sl) foot.push(h('span', { class: 'sp-f warn' }, icon('moon', 13), tr('sleep in {0}', [hmmss(sl.until - Date.now())])));
       const waiting = ((S.automation && S.automation.waiting) || []).slice().sort((x, y) => x.due - y.due);
@@ -1225,7 +1259,8 @@
       panel.replaceChildren(head,
         h('div', { class: 'sp-body' },
           h('div', { class: 'sp-col' }, h('span', { class: 'sp-cap' }, tr('Sources')), ...srcRows),
-          h('div', { class: 'sp-col' }, h('span', { class: 'sp-cap' }, tr('Outputs')), ...outRows)),
+          h('div', { class: 'sp-col' }, h('span', { class: 'sp-cap sp-caprow' }, tr('Outputs'),
+            S.device.ready ? h('button', { class: 'chip', title: tr('as the unit’s Toggle Ph/Line function; which outputs switch is set under Toggle Phones / Line'), onclick: toggleOutputs }, tr('Toggle outputs')) : null), ...outRows)),
         foot.length ? h('div', { class: 'sp-foot' }, foot) : null);
       if (sl || waiting.length || (ipOn && ip.pending)) tick = setTimeout(() => { if (panel.isConnected) draw(); }, 1000);
     };
@@ -1290,12 +1325,23 @@
     const label = h('input', { type: 'text', class: 'plain', placeholder: tr('What is the situation? e.g. "SPDIF coax unplugged"'), 'aria-label': tr('Snapshot label') });
     const list = h('ol', { class: 'snaps' });
     let last = null;
-    const bitsRow = (name, value, width, prev) => {
+    // RME MIDI table v1.0, Status sheet
+    const IO1 = ['Lock AES', 'Lock SPDIF', 'Sync AES', 'Sync SPDIF', 'SPDIF optical', 'ADAT detected', 'Clock source', 'Clock source',
+      'AES rate', 'AES rate', 'AES rate', 'AES rate', 'SPDIF rate', 'SPDIF rate', 'SPDIF rate', 'SPDIF rate',
+      'Internal rate', 'Internal rate', 'Internal rate', 'Internal rate', 'Internal rate', 'Phones 1 plug', '', '', '', 'Over current Phones 1', 'Over current Phones 2', 'Phones 2 plug'];
+    const IO2 = ['High Load', 'High Load', 'DSD USB', 'DSD Line', 'DSD Phones', 'DSD digital outputs', 'DSD AES', 'DSD SPDIF', '24 bit AES', '24 bit SPDIF',
+      'Professional AES', 'Professional SPDIF', 'Emphasis AES', 'Emphasis SPDIF', '', '', 'Non-audio AES', 'Non-audio SPDIF', 'DC error Phones 1', 'DC error Phones 2', '', '', '', '', 'Power fail'];
+    const B6 = ['Active output', 'Active output', 'Device revision', 'Device revision', 'Active line output', 'Active line output', 'Phones 3/4 active'];
+    const B15 = ['Device mode', 'Device mode', 'Device mode', 'Balanced mode', 'DSD decode', 'DSD decode', 'DSD decode'];
+    const B16 = ['Protocol revision', 'Protocol revision', 'Protocol revision', 'Protocol revision', '8-channel mode'];
+    const B17 = ['Sample rate DAC mode', 'Sample rate DAC mode', 'Sample rate DAC mode', 'Sample rate DAC mode', 'Sample rate DAC mode', 'Penta plug'];
+    const B18 = ['Bit test', 'Bit test', 'Bit test', 'DC detection line', 'DC detection phones'];
+    const bitsRow = (name, value, width, prev, labels = []) => {
       const cells = [];
       for (let b = width - 1; b >= 0; b--) {
         const on = (value >> b) & 1;
         const changed = prev !== undefined && (((prev >> b) & 1) !== on);
-        cells.push(h('i', { class: `${on ? 'on' : ''}${changed ? ' chg' : ''}`, title: tr('bit {0}', [b]) }));
+        cells.push(h('i', { class: `${on ? 'on' : ''}${changed ? ' chg' : ''}`, title: labels[b] ? `${tr('bit {0}', [b])}: ${labels[b]}` : tr('bit {0}', [b]) }));
       }
       return h('div', { class: 'bitrow' }, h('b', null, name), h('span', { class: 'cells' }, cells), h('code', null, `0x${value.toString(16).padStart(Math.ceil(width / 4), '0')}`));
     };
@@ -1303,12 +1349,13 @@
       const s = S.statusInfo;
       if (!s) { grid.replaceChildren(h('p', { class: 'hint' }, tr('Waiting for the status message…'))); return; }
       const ref = snaps.length ? snaps[snaps.length - 1].info : null;
-      const raw = (x) => parseInt(x.split(' ')[0], 16);
+      const byte = (x, i) => { const b = x.hex.split(' ')[i]; return b === undefined ? undefined : parseInt(b, 16); };
+      const byteRow = (i, labels) => (byte(s, i) === undefined ? null : bitsRow(`Byte ${i + 6}`, byte(s, i), 7, ref ? byte(ref, i) : undefined, labels));
       grid.replaceChildren(
-        bitsRow('Byte 6', raw(s.hex), 7, ref ? raw(ref.hex) : undefined),
-        bitsRow('IOStatus1', s.io1, 28, ref ? ref.io1 : undefined),
-        bitsRow('IOStatus2', s.io2, 28, ref ? ref.io2 : undefined),
-        bitsRow('Byte 15', parseInt(s.hex.split(' ')[9], 16), 7, ref ? parseInt(ref.hex.split(' ')[9], 16) : undefined),
+        byteRow(0, B6),
+        bitsRow('IOStatus1', s.io1, 28, ref ? ref.io1 : undefined, IO1),
+        bitsRow('IOStatus2', s.io2, 28, ref ? ref.io2 : undefined, IO2),
+        byteRow(9, B15), byteRow(10, B16), byteRow(11, B17), byteRow(12, B18),
         h('p', { class: 'hint' }, tr('Raw: '), h('code', null, s.hex), ref ? tr(' · highlighted bits differ from the last snapshot') : ''));
       last = s;
     };
@@ -1703,7 +1750,7 @@
     const ICONS = { mode: 'general', phones: 'headphones', dsd: 'music', display: 'display', power: 'power' };
     const lay = sectionLayout('device');
     lay.set([
-      ...['mode', 'phones', 'dsd', 'display', 'power'].map((g) => sec(groupCard('device', 'device', g), { icon: ICONS[g], summary: g === 'mode' && available(SEC.device.basic) ? () => valueName('device', 'basic') : null })),
+      ...['mode', 'phones', 'dsd', 'display', 'power'].map((g) => sec(groupCard('device', 'device', g, null, undefined, [], g === 'phones' ? [toggleOutputsRow()] : []), { icon: ICONS[g], summary: g === 'mode' && available(SEC.device.basic) ? () => valueName('device', 'basic') : null })),
       S.routing && S.routing.available ? null : sec(usbRateCard(), { icon: 'clock' }), // with the audio service: Pi Playback tab
       sec(setupsCard(), { icon: 'list', summary: () => tr('{0} setups', [9]) }),
     ]);
@@ -1732,7 +1779,7 @@
       if (!r) return c.key === 'ph12'; // Pro: Phones 1/2 follows Line Out
       const v = S.p.get(key(r.addr, r.idx));
       if (v === undefined) return false;
-      const nm = (names(r.param, r.channel) || [])[v] || '';
+      const nm = nameOf(r.param, r.channel, v) || '';
       return v === 0 || /USB/.test(nm);
     });
 
@@ -1945,7 +1992,7 @@
         if (au && au.usb[c.key] !== undefined) {
           const on = au.usb[c.key];
           const held = au.held[c.key];
-          const was = held !== null ? (names(r.param, c) || [])[held] : null;
+          const was = held !== null ? nameOf(r.param, c, held) : null;
           rows.push(h('div', { class: 'row' },
             h('div', { class: 'lab' }, tr('USB while the Pi plays'), h('small', null, was ? tr('switched – goes back to {0} when it stops', [was]) : on ? tr('switches to USB 1/2, back afterwards') : tr('off – the Source stays as set'))),
             h('div', { class: 'ctl' }, h('button', { class: 'sw', role: 'switch', 'aria-checked': on ? 'true' : 'false', 'aria-label': tr('{0}: USB while the Pi plays', [chName(c)]), onclick: () => act({ action: 'usb', value: { [c.key]: !on } }) }))));
@@ -2243,7 +2290,7 @@
       sub(k, (v) => {
         vCell.textContent = v === undefined ? '–' : String(v);
         if (v === undefined) { dCell.textContent = ''; return; }
-        if (r.p.type === 'select') dCell.textContent = (names(r.p, r.ch) || [])[v] ?? `#${v}`;
+        if (r.p.type === 'select') dCell.textContent = nameOf(r.p, r.ch, v) ?? `#${v}`;
         else if (r.p.type === 'toggle') dCell.textContent = v ? tr('on') : tr('off');
         else dCell.textContent = `${fmt(toDisp(r.p, v), r.p.decimals || 0)} ${r.p.unit || ''}`;
       });
@@ -2316,7 +2363,8 @@
         const v = S.p.get(k);
         if (v === undefined) { never.push(`${ch ? chName(ch) : 'Device'} · ${p.label} (${k})`); return; }
         const n = p.type === 'select' ? names(p, ch) : null;
-        if (n && (v < 0 || v >= n.length)) beyond.push(`${ch ? chName(ch) : 'Device'} · ${p.label} (${k}) = ${v}; RME's table lists ${n.length} values (0–${n.length - 1}: ${n.join(', ')})`);
+        const b = n ? base(p) : 0;
+        if (n && (v < b || v >= b + n.length)) beyond.push(`${ch ? chName(ch) : 'Device'} · ${p.label} (${k}) = ${v}; RME's table lists ${n.length} values (${b}–${b + n.length - 1}: ${n.join(', ')})`);
       };
       for (const c of S.schema.channels) {
         if (!available(c)) continue;
@@ -2354,7 +2402,7 @@
     // redraw now and then: values arrive with each re-read, and the "lit" rows fade
     const timer = setInterval(() => { if (!document.body.contains(body)) { clearInterval(timer); unknownSubs.delete(draw); } else draw(); }, 3000);
     return card(tr('Settings ADI-2-Pi can’t name yet'),
-      h('p', { class: 'hint help', style: { marginTop: 0 } }, tr('The unit sends all its settings; these aren’t in RME’s MIDI table (v0.2). To find out what one is, change a setting on the unit that ADI-2-Pi doesn’t show – the line that belongs to it lights up here. Copy report puts the list in a text, e.g. for an issue report.')),
+      h('p', { class: 'hint help', style: { marginTop: 0 } }, tr('The unit sends all its settings; these aren’t in RME’s MIDI table (v1.0). To find out what one is, change a setting on the unit that ADI-2-Pi doesn’t show – the line that belongs to it lights up here. Copy report puts the list in a text, e.g. for an issue report.')),
       body,
       h('div', { class: 'inline', style: { marginTop: '10px', justifyContent: 'flex-end' } },
         h('button', { class: 'btn', onclick: () => send({ t: 'refresh' }).then(() => toast(tr('Re-reading from the unit'))).catch(() => {}) }, tr('Re-read')),
@@ -2376,7 +2424,7 @@
     if (!r) return `${ch} ${it.id}`;
     let v;
     if (r.param.type === 'toggle') v = it.value ? 'on' : 'off';
-    else if (r.param.type === 'select') v = (names(r.param, r.channel) || [])[it.value] ?? it.value;
+    else if (r.param.type === 'select') v = nameOf(r.param, r.channel, it.value) ?? it.value;
     else v = `${fmt(it.value, r.param.decimals || 0)}${r.param.unit ? ` ${r.param.unit}` : ''}`;
     if (it.id === 'eqpreset' && it.value >= 2 && it.value <= 21) { const p = S.presets[it.value - 2]; v = `${it.value - 1}${p && p.name ? ` · ${p.name}` : ''}`; }
     return `${ch} ${r.param.label} ${v}`;
@@ -2531,7 +2579,7 @@
     if (!scenes.length) return wide(card(tr('Actions'), list, h('p', { class: 'hint' }, tr('Actions apply a scene. Save a scene first.'))));
     const type = h('select', { 'aria-label': tr('When') },
       [['unit-on', tr('ADI-2 switched on')], ['bt-connect', tr('Bluetooth device connects')], ['bt-disconnect', tr('Bluetooth device disconnects')], ['play-start', tr('playback starts')], ['play-stop', tr('playback stops')], ['idle', tr('nothing played for…')], ['time', tr('time of day')],
-        ...(S.device.model === 'pro' ? [['input-signal', tr('digital input gets a signal')], ['input-lost', tr('digital input loses its signal')]] : [])].map(([v, l]) => h('option', { value: v, text: l })));
+        ['input-signal', tr('digital input gets a signal')], ['input-lost', tr('digital input loses its signal')]].map(([v, l]) => h('option', { value: v, text: l })));
     const sceneEnd = h('select', { 'aria-label': tr('Scene at the end') }, h('option', { value: '', text: tr('nothing') }), ...scenes.map((s) => h('option', { value: s.id, text: s.name })));
     const endWrap = h('span', { class: 'inline', style: { gap: '6px' } }, tr('and at the end'), sceneEnd);
     const extra = h('span', { class: 'inline', style: { gap: '6px', flexWrap: 'wrap' } });
@@ -2578,7 +2626,7 @@
           if (r.when.until) { if (!sceneEnd.value) return toast(tr('Choose the scene for the end time.')); r.sceneEnd = sceneEnd.value; }
           save([...(S.settings.rules || []), r]);
         } }, tr('Add'))),
-      h('p', { class: 'hint help' }, tr('Actions run while ADI-2-Pi runs and the ADI-2 is connected. Times are the Pi’s local time. A time action with an end time applies a second scene then. Digital input signal: AES and the SPDIF input chosen under SPDIF In, Pro models.')),
+      h('p', { class: 'hint help' }, tr('Actions run while ADI-2-Pi runs and the ADI-2 is connected. Times are the Pi’s local time. A time action with an end time applies a second scene then. Digital input signal: AES and the SPDIF input chosen under SPDIF In (coax or optical).')),
       h('p', { class: 'hint help' }, tr('Delay (0 = at once): the scene follows that much later. If the opposite happens meanwhile – the input gets its signal back, the source plays again, the device reconnects, the ADI-2 goes off – the action is dropped. A time action and its end scene both move by the delay. Waiting actions don’t survive a restart of ADI-2-Pi.')));
     return wide(card(tr('Actions'), list, add));
   }
@@ -2838,8 +2886,9 @@
       clearTimeout(tick);
       const ip = S.inputPriority;
       if (!ip) { body.replaceChildren(h('p', { class: 'hint' }, tr('Waiting for ADI-2-Pi…'))); return; }
-      if (!ip.available) { body.replaceChildren(h('p', { class: 'hint', style: { marginTop: 0 } }, model() && model() !== 'pro' ? tr('This needs the AES/SPDIF signal detection, which works with the ADI-2 Pro models only.') : tr('Not available in this installation.'))); return; }
+      if (!ip.available) { body.replaceChildren(h('p', { class: 'hint', style: { marginTop: 0 } }, tr('Not available in this installation.'))); return; }
       const names = NAME();
+      if (model() === 'dac') { delete names.aes; delete names.analog; names.usb = 'USB'; } // the ADI-2 DAC's inputs: SPDIF (coax or optical), USB
       const order = ip.order || [];
       // positions: up to the first input without signal detection (later ones would never be used)
       const sels = [];
@@ -2902,7 +2951,7 @@
     if (has('eqen')) parts.push(`EQ ${has('eqen').value ? tr('on') : tr('off')}${eqp ? ` · ${presetLabel(eqp.value, eqp.value === 0 ? tr('manual') : eqp.value === 1 ? tr('temp') : tr('preset {0}', [eqp.value - 1]))}` : ''}`);
     if (has('bten')) parts.push(`B/T ${has('bten').value ? tr('on') : tr('off')}`);
     if (has('loud')) parts.push(`${tr('Loudness')} ${has('loud').value ? tr('on') : tr('off')}`);
-    if (has('xfeed')) parts.push(`${tr('Crossfeed')} ${(names(SEC.output.xfeed, CH.ph34) || [])[has('xfeed').value] ?? has('xfeed').value}`);
+    if (has('xfeed')) parts.push(`${tr('Crossfeed')} ${nameOf(SEC.output.xfeed, CH.ph34, has('xfeed').value) ?? has('xfeed').value}`);
     if (p.limit !== undefined) parts.push(p.limit === null ? tr('no volume limit') : tr('limit {0} dB', [fmt(p.limit, 1)]));
     return `${parts.join(' · ') || tr('{0} values', [p.items.length])}`;
   }

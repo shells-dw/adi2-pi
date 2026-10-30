@@ -66,6 +66,50 @@ test('probes other device IDs when the USB name hint is wrong', async () => {
   } finally { b.stop(); }
 });
 
+test('profile: ADI-2/4 Pro EX from the device revision, Basic Mode DAC switches the Source list', async () => {
+  const se = await start({ model: 'se' });
+  try {
+    await until(() => se.dev.ready && se.dev.statusInfo);
+    assert.strictEqual(se.dev.profile, 'se', 'device revision 0');
+    assert.strictEqual(se.dev.info().modelName, 'ADI-2/4 Pro SE / Pro EX');
+  } finally { se.stop(); }
+  const b = await start({ model: 'se-ex' });
+  try {
+    const seen = [];
+    b.dev.on('device', (d) => seen.push(d.profile));
+    await until(() => b.dev.ready && b.dev.statusInfo);
+    assert.strictEqual(b.dev.profile, 'se-ex', 'device revision 1 in the status message');
+    assert.ok(seen.includes('se') && seen.includes('se-ex'), 'device event when the status message changed the profile');
+    assert.strictEqual(b.dev.info().modelName, 'ADI-2/4 Pro EX');
+    let r = await post(b.base, '/api/set', { set: [{ ch: 'device', id: 'basic', value: 5 }] });
+    assert.strictEqual(r.body.errors, undefined);
+    await until(() => b.dev.profile === 'se-ex@dac');
+    // value 3 is Optical in Basic Mode DAC
+    r = await post(b.base, '/api/set', { set: [{ ch: 'line', id: 'src', value: 7 }] });
+    assert.strictEqual(r.status, 400);
+    assert.match(r.body.error, /not one of 0–6 \(Auto, AES, SPDIF c, Optical, Analog, USB 1\/2, USB 3\/4\)/);
+    // input Ref Level of the EX goes down to -6 (-35 dBu)
+    r = await post(b.base, '/api/set', { set: [{ ch: 'in', id: 'inref', value: -6 }] });
+    assert.strictEqual(r.body.errors, undefined);
+    await until(() => b.dev.get(0, 1) === -6);
+    assert.match(b.dev.sentLog.at(-1).what, /Ref Level = -35 dBu/);
+  } finally { b.stop(); }
+});
+
+test('toggle outputs: device parameter 63 is sent, the new state read back', async () => {
+  const b = await start();
+  try {
+    await until(() => b.dev.ready);
+    const before = b.dev.get(3, 15);
+    const r = await post(b.base, '/api/toggle-outputs', {});
+    assert.strictEqual(r.status, 200);
+    assert.ok(b.mock.received.some((m) => m.cmd === 2 && m.params && m.params.some((p) => p.addr === 12 && p.idx === 63)));
+    await until(() => b.dev.get(3, 15) === (before ? 0 : 1), 3000);
+    assert.strictEqual(b.dev.get(12, 63), undefined, 'not a setting');
+    assert.match(b.dev.sentLog.at(-1).what, /toggle outputs/);
+  } finally { b.stop(); }
+});
+
 test('sets reach the unit (coalesced into one message) and are read back', async () => {
   const b = await start({ settings: { limits: { ph34: null } } });
   try {

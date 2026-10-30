@@ -28,7 +28,6 @@
   "Access key set": "Zugangsschlüssel gesetzt",
   "Actions": "Aktionen",
   "Actions apply a scene. Save a scene first.": "Aktionen wenden eine Szene an. Zuerst eine Szene speichern.",
-  "Actions run while ADI-2-Pi runs and the ADI-2 is connected. Times are the Pi’s local time. A time action with an end time applies a second scene then. Digital input signal: AES and the SPDIF input chosen under SPDIF In, Pro models.": "Aktionen laufen, solange ADI-2-Pi läuft und der ADI-2 verbunden ist. Zeiten sind die Ortszeit des Pi. Eine Zeitaktion mit Endzeit wendet dann eine zweite Szene an. Digitales Eingangssignal: AES und der unter SPDIF In gewählte SPDIF-Eingang, Pro-Modelle.",
   "Active": "Aktiv",
   "Add": "Hinzufügen",
   "Add headphones or speakers": "Kopfhörer oder Lautsprecher hinzufügen",
@@ -470,7 +469,7 @@
   "The Pi's Bluetooth shares its antenna with Wi-Fi on 2.4 GHz. For dropout-free LDAC, connect the Pi by Ethernet or use 5 GHz Wi-Fi.": "Das Bluetooth des Pi teilt sich die Antenne mit WLAN auf 2,4 GHz. Für LDAC ohne Aussetzer den Pi per Ethernet anschließen oder 5-GHz-WLAN nutzen.",
   "the unit loads its stored copy": "das Gerät lädt seine abgelegte Kopie",
   "The unit reports nothing beyond RME’s table.": "Das Gerät meldet nichts über RMEs Tabelle hinaus.",
-  "The unit sends all its settings; these aren’t in RME’s MIDI table (v0.2). To find out what one is, change a setting on the unit that ADI-2-Pi doesn’t show – the line that belongs to it lights up here. Copy report puts the list in a text, e.g. for an issue report.": "Das Gerät sendet alle seine Einstellungen; diese stehen nicht in RMEs MIDI-Tabelle (v0.2). Um herauszufinden, was eine ist, am Gerät eine Einstellung ändern, die ADI-2-Pi nicht zeigt – die zugehörige Zeile leuchtet hier auf. Bericht kopieren fasst die Liste als Text zusammen, z. B. für einen Fehlerbericht.",
+  "The unit sends all its settings; these aren’t in RME’s MIDI table (v1.0). To find out what one is, change a setting on the unit that ADI-2-Pi doesn’t show – the line that belongs to it lights up here. Copy report puts the list in a text, e.g. for an issue report.": "Das Gerät sendet alle seine Einstellungen; diese stehen nicht in RMEs MIDI-Tabelle (v1.0). Um herauszufinden, was eine ist, am Gerät eine Einstellung ändern, die ADI-2-Pi nicht zeigt – die zugehörige Zeile leuchtet hier auf. Bericht kopieren fasst die Liste als Text zusammen, z. B. für einen Fehlerbericht.",
   "The volume limits above still apply. Mute on the sender mutes the outputs. Changing the volume on the ADI-2 doesn’t move the sender’s slider. Switching this on or off restarts AirPlay and Spotify Connect. UPnP, Squeezelite, Snapcast and Bluetooth keep their own volume.": "Die Lautstärkelimits oben gelten weiter. Mute am Sender schaltet die Ausgänge stumm. Eine Lautstärkeänderung am ADI-2 bewegt den Regler des Senders nicht. Ein- oder Ausschalten startet AirPlay und Spotify Connect neu. UPnP, Squeezelite, Snapcast und Bluetooth behalten ihre eigene Lautstärke.",
   "They hear": "Sie hören",
   "They hear the ADI-2's analog input.": "Sie hören den Analogeingang des ADI-2.",
@@ -591,7 +590,6 @@
   "Not available in this installation.": "In dieser Installation nicht verfügbar.",
   "Switch inputs automatically": "Eingänge automatisch umschalten",
   "The outputs play the first input in the list that has a signal: when it loses its signal they switch to the next one, and back when it returns. AES and SPDIF are detected; Analog and USB can’t be, so the list ends with them. A source picked by hand stays until a signal comes or goes. While the Pi plays on USB, the output comes back to the input chosen here.": "Die Ausgänge spielen den ersten Eingang der Liste, der ein Signal hat: verliert er das Signal, schalten sie auf den nächsten und zurück, sobald es wiederkommt. AES und SPDIF werden erkannt, Analog und USB nicht – mit ihnen endet die Liste. Eine von Hand gewählte Quelle bleibt, bis ein Signal kommt oder geht. Während der Pi über USB spielt, kehrt der Ausgang danach zu dem hier gewählten Eingang zurück.",
-  "This needs the AES/SPDIF signal detection, which works with the ADI-2 Pro models only.": "Dafür braucht es die AES/SPDIF-Signalerkennung, die nur mit den ADI-2-Pro-Modellen funktioniert.",
   "follows the list": "folgt der Liste",
   "left alone": "bleibt unverändert",
   "{0} h": "{0} h",
@@ -896,5 +894,11 @@
   "by hand": "von Hand",
   "this release has no signature file": "dieses Release hat keine Signaturdatei",
   "Download": "Download",
-  "Download and install does the same with the files from GitHub. Install updates automatically (off by default) does it by itself after the daily check, when nothing plays on the Pi – new releases then run as root on this Pi without asking. A version whose installation failed is not tried again by itself.": "„Herunterladen und installieren“ macht dasselbe mit den Dateien von GitHub. „Updates automatisch installieren“ (standardmäßig aus) macht es nach der täglichen Prüfung von selbst, wenn auf dem Pi nichts spielt – neue Releases laufen dann ohne Rückfrage als root auf diesem Pi. Eine Version, deren Installation fehlgeschlagen ist, wird nicht von selbst erneut versucht."
+  "Download and install does the same with the files from GitHub. Install updates automatically (off by default) does it by itself after the daily check, when nothing plays on the Pi – new releases then run as root on this Pi without asking. A version whose installation failed is not tried again by itself.": "„Herunterladen und installieren“ macht dasselbe mit den Dateien von GitHub. „Updates automatisch installieren“ (standardmäßig aus) macht es nach der täglichen Prüfung von selbst, wenn auf dem Pi nichts spielt – neue Releases laufen dann ohne Rückfrage als root auf diesem Pi. Eine Version, deren Installation fehlgeschlagen ist, wird nicht von selbst erneut versucht.",
+  "Balanced Impedance": "Impedanz (symmetrisch)",
+  "Toggle outputs": "Ausgänge umschalten",
+  "Outputs toggled": "Ausgänge umgeschaltet",
+  "Toggle": "Umschalten",
+  "as the unit’s Toggle Ph/Line function; which outputs switch is set under Toggle Phones / Line": "wie die Funktion Toggle Ph/Line des Geräts; welche Ausgänge umschalten, legt Toggle Phones / Line fest",
+  "Actions run while ADI-2-Pi runs and the ADI-2 is connected. Times are the Pi’s local time. A time action with an end time applies a second scene then. Digital input signal: AES and the SPDIF input chosen under SPDIF In (coax or optical).": "Aktionen laufen, solange ADI-2-Pi läuft und der ADI-2 verbunden ist. Zeiten sind die Ortszeit des Pi. Eine Zeitaktion mit Endzeit wendet dann eine zweite Szene an. Digitales Eingangssignal: AES und der unter SPDIF In gewählte SPDIF-Eingang, (koaxial oder optisch)."
 }

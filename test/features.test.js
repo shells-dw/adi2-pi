@@ -336,11 +336,11 @@ test('actions: end time of a time action, digital input signal, Pi idle', async 
     await until(() => disp(dev, 'ph34', 'vol') === -40, 2000, 'start of the time action');
     now = new Date(2026, 9, 25, 7, 0);   // Sunday: the end belongs to Saturday's action
     await until(() => disp(dev, 'ph34', 'vol') === -20, 2000, 'end of the time action');
-    // digital inputs come from the status message (IOStatus1 bits 23+21 = AES)
-    const status = (io1) => mock._send(require('../lib/protocol').frame(mock.id, 0x07, [0x05, (io1 >> 21) & 0x7f, (io1 >> 14) & 0x7f, (io1 >> 7) & 0x7f, io1 & 0x7f, 0, 0, 0, 0, 1, 2, 0, 0, 0]));
+    // digital inputs come from the status message (IOStatus1 bit 0 = Lock AES, bit 2 = Sync AES; first byte = bits 6–0)
+    const status = (io1) => mock._send(require('../lib/protocol').frame(mock.id, 0x07, [0x05, io1 & 0x7f, (io1 >> 7) & 0x7f, (io1 >> 14) & 0x7f, (io1 >> 21) & 0x7f, 0, 0, 0, 0, 1, 2, 0, 0, 0]));
     status(0);
     await sleep(30);
-    status((1 << 23) | (1 << 21));
+    status((1 << 2) | (1 << 0));
     await until(() => disp(dev, 'ph34', 'vol') === -33, 2000, 'AES signal');
     status(0);
     await until(() => disp(dev, 'ph34', 'vol') === -44, 2000, 'AES lost');
