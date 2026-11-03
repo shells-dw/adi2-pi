@@ -1,7 +1,8 @@
 <img src="docs/logo/wordmark-light.png" alt="ADI-2-Pi" width="420">
 
 Network remote and audio bridge for RME ADI-2 series converters (ADI-2 DAC, ADI-2 Pro / Pro EX,
-ADI-2/4 Pro SE / Pro EX). Runs on a Raspberry Pi connected to the unit by USB.
+ADI-2/4 Pro SE / Pro EX). Runs on a Raspberry Pi connected to the unit by USB, or on another
+Linux computer (see [Other Linux systems](#other-linux-systems)).
 
 - **Web interface:** all output, input and device settings, parametric EQ with a draggable curve,
   bass/treble, loudness, setups, the unit's 20 EQ presets (edit, store, load).
@@ -36,6 +37,8 @@ ADI-2/4 Pro SE / Pro EX). Runs on a Raspberry Pi connected to the unit by USB.
 
 - Raspberry Pi with Raspberry Pi OS Bookworm or Trixie, Lite or Desktop, 64-bit recommended.
   Tested on a Raspberry Pi 4. The trigger wake-up does not work on a Pi 5.
+- Or another computer with Debian 12+, Ubuntu 22.04+ or Linux Mint, headless or with a desktop
+  (see [Other Linux systems](#other-linux-systems)).
 - ADI-2 connected by USB, **MIDI Control = ON** (Pro models: SETUP – Options – Device Mode;
   DAC: Remap Keys / Diag).
 - For Bluetooth and streaming: the ADI-2 in USB **stereo** mode (default).
@@ -55,8 +58,8 @@ The installer:
 - installs Node.js 24 LTS from NodeSource's apt repository (`deb.nodesource.com`; 64-bit systems).
   On 32-bit systems, with `--system-node`, or when the repository can't be reached, Raspberry Pi
   OS's Node.js is used (Trixie: 20, Bookworm: 18)
-- installs the other packages from the Raspberry Pi OS repositories (avahi, ALSA utilities, gpiod,
-  i2c-tools; with audio: PipeWire, WirePlumber, BlueZ, Python D-Bus bindings; with streaming: the
+- installs the other packages from the system's repositories (avahi, ALSA utilities; on a Pi gpiod
+  and i2c-tools; with audio: PipeWire, WirePlumber, BlueZ, Python D-Bus bindings; with streaming: the
   receivers)
 - creates the system user `adi2pi` and the services `adi2-pi` (bridge) and `adi2-pi-audio`
   (a dedicated PipeWire instance for the ADI-2 and Bluetooth)
@@ -71,6 +74,8 @@ in a later run.
 
 | Option | Effect |
 |---|---|
+| `--dedicated` | Not a Pi: the computer is used only for the ADI-2 – full installation, no question. |
+| `--shared` | Not a Pi: the computer is also used otherwise – remote control only, no question (see [Other Linux systems](#other-linux-systems)). |
 | `--port N` | HTTP/WebSocket port. Default 80; if 80 is in use, the installer asks for another port (`-y`: first free port from 8080). |
 | `--no-bluetooth` | Remote control only: no audio service, no Bluetooth, no streaming. |
 | `--no-streaming` | No network receivers. |
@@ -82,7 +87,7 @@ in a later run.
 | `--journal-ram` | Keeps the system journal in RAM only. |
 | `--with-ups` | Switches I²C on and looks for a Waveshare UPS HAT; I²C stays on when one answers (see [UPS HAT](#ups-hat)). |
 | `--no-ups` | Doesn't look for a UPS HAT at all. |
-| `--system-node` | Node.js from Raspberry Pi OS instead of NodeSource; removes NodeSource's repository if present. Without the option, a later run switches to Node.js 24 again. |
+| `--system-node` | Node.js from the system's packages instead of NodeSource; removes NodeSource's repository if present. Without the option, a later run switches to Node.js 24 again. |
 | `--auto-updates` | Sets System → *System updates* to *install*: all updates 5 minutes after each start of the Pi, then every 24 hours (see [System updates](#system-updates)). |
 | `--no-auto-updates` | Sets it to *off* (updates only when asked for). |
 | `--same-options` | The options of the previous run (saved in `/etc/adi2-pi/install-options`) plus the ones given. |
@@ -90,6 +95,43 @@ in a later run.
 | `-y`, `--yes` | No questions. |
 
 Uninstall: `sudo /opt/adi2-pi/uninstall.sh` (`--purge` also removes settings and the service user).
+
+### Other Linux systems
+
+`install.sh` also runs on Debian 12+, Ubuntu 22.04+ and Linux Mint (with systemd), on x86_64 or
+ARM. On a computer that isn't a Raspberry Pi it asks once whether the computer is used only for
+the ADI-2 (default: yes without a desktop, no with one; `-y` takes the default; the answer is
+kept for later runs and updates):
+
+- **Yes** (`--dedicated`): full installation, as on a Pi.
+- **No** (`--shared`): remote control only. The desktop keeps the ADI-2 as its sound card and
+  its Bluetooth; ADI-2-Pi never shuts the computer down or restarts it and installs no system
+  updates (those System tab sections are hidden).
+
+The GPIO trigger and the UPS HAT need a Raspberry Pi.
+
+Other distributions (Fedora, Arch …): remote control only, set up by hand.
+
+1. Install Node.js 18 or newer, then:
+   ```sh
+   git clone https://github.com/shells-dw/adi2-pi.git
+   node adi2-pi/bin/adi2-pi.js --no-audio --shared --port 8080 --data ~/.local/share/adi2-pi
+   ```
+   The user needs to be in the `audio` group.
+2. With PipeWire: create `/etc/wireplumber/wireplumber.conf.d/51-adi2-pi-no-midi.conf` with
+   `wireplumber.profiles = { main = { monitor.alsa-midi = disabled } }` and run
+   `systemctl --user restart wireplumber`.
+3. Start with the computer: `~/.config/systemd/user/adi2-pi.service`
+   ```ini
+   [Service]
+   ExecStart=/usr/bin/node %h/adi2-pi/bin/adi2-pi.js --no-audio --shared --port 8080 --data %h/.local/share/adi2-pi
+   Restart=on-failure
+
+   [Install]
+   WantedBy=default.target
+   ```
+   then `systemctl --user enable --now adi2-pi` (and `sudo loginctl enable-linger $USER` to
+   start without a login). Updates: unpack a new release over the folder.
 
 ## Web interface
 
@@ -472,8 +514,8 @@ Plain MQTT without TLS, for a server in the local network. Topics: [docs/API.md]
 
 ### MIDI port
 
-The PipeWire instance of a Raspberry Pi OS desktop session opens all ALSA MIDI ports, which
-blocks the ADI-2's port. The installer disables WirePlumber's ALSA MIDI monitor for desktop
+The PipeWire instance of a desktop session opens all ALSA MIDI ports, which blocks the ADI-2's
+port. The installer disables WirePlumber's ALSA MIDI monitor for desktop
 sessions; `--keep-pipewire-midi` skips this.
 
 ### Network access

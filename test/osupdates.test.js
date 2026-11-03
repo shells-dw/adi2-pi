@@ -135,3 +135,14 @@ test('automatic: 5 minutes after the Pi started, then daily; the start shutdown 
   assert.strictEqual(u3.status().available, false);
   await assert.rejects(u3.check(), /installer/);
 });
+
+test('a computer that is also used otherwise (--shared): no system updates', () => {
+  const settings = new Settings(null, quiet);
+  settings.update({ osUpdates: { mode: 'install' } });
+  const u = new OsUpdates({ settings, log: quiet, installed: true, shared: true, run: async () => { throw new Error('must not run'); } });
+  u.start();
+  u.stop();
+  const s = u.status();
+  assert.strictEqual(s.available, false);
+  assert.match(s.reason, /also used otherwise/);
+});

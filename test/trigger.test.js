@@ -262,3 +262,29 @@ test('wiring: GPIO3 low while the ADI-2 answers over USB = trigger found; USB on
   assert.strictEqual(none.status().reason, null);
   none.stop();
 });
+
+test('a computer that is also used otherwise (--shared): never shuts down', async () => {
+  const settings = new Settings(null, quiet);
+  settings.update({ trigger: { enabled: true } });
+  const g = fakeGpio();
+  let off = 0;
+  const t = new Trigger({ getSettings: () => settings.get(), getDevice: () => ({ connected: false }), log: quiet, run: g.run, powerOff: async () => { off++; }, model: '', pollMs: 20, shared: true });
+  t.start();
+  await new Promise((r) => setTimeout(r, 150));
+  t.stop();
+  assert.strictEqual(off, 0);
+  const s = t.status();
+  assert.deepStrictEqual([s.enabled, s.available], [false, false]);
+  assert.match(s.reason, /also used otherwise/);
+});
+
+test('--shared: a settings change keeps it off, with its reason', () => {
+  const settings = new Settings(null, quiet);
+  const t = new Trigger({ getSettings: () => settings.get(), getDevice: () => ({ connected: false }), log: quiet, run: fakeGpio().run, powerOff: async () => {}, model: '', shared: true });
+  t.start();
+  settings.update({ trigger: { enabled: true } });
+  t.apply();
+  t.stop();
+  assert.match(t.status().reason, /also used otherwise/);
+  assert.strictEqual(t.status().enabled, false);
+});

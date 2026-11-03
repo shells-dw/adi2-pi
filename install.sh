@@ -1,9 +1,17 @@
 #!/usr/bin/env bash
-# ADI-2-Pi installer for Raspberry Pi OS (Bookworm or Trixie, 64-bit recommended).
+# ADI-2-Pi installer for Raspberry Pi OS (Bookworm or Trixie, 64-bit recommended), Debian 12 or
+# newer, Ubuntu 22.04 or newer and Linux Mint – on a Raspberry Pi or another computer.
 # Run from the unpacked folder:   sudo ./install.sh
 # Running it again updates the bridge and keeps your settings.
 #
+# Not a Raspberry Pi: the installer asks whether the computer is used only for the ADI-2
+# (default: yes without a desktop, no with one).
+#
 # Options:
+#   --dedicated         the computer is used only for the ADI-2: full installation (as on a Pi)
+#   --shared            the computer is also used otherwise: remote control only (as --no-bluetooth);
+#                       the desktop keeps the ADI-2 as its sound card and its Bluetooth, and
+#                       ADI-2-Pi doesn't shut the computer down, restart it or install system updates
 #   --port N            web/API port (default: 80; if it's taken, the installer asks – or picks 8080
 #                       with -y). Run the installer again with --port to change it later.
 #   --keep-pipewire-midi   don't stop PipeWire/WirePlumber from grabbing MIDI ports
@@ -21,7 +29,7 @@
 #                       (I²C uses GPIO3, so the ADI-2 trigger then has to use another GPIO).
 #                       Without it, only an I²C bus that is on already is looked at.
 #   --no-ups            don't look for a UPS HAT at all
-#   --system-node       Node.js from Raspberry Pi OS (Trixie: 20, Bookworm: 18) instead of Node.js 24 LTS
+#   --system-node       Node.js from the system's packages (Raspberry Pi OS Trixie: 20, Bookworm: 18) instead of Node.js 24 LTS
 #                       from NodeSource's apt repository; removes that repository if it was added before
 #   --auto-updates      install all system updates (apt full-upgrade) 5 minutes after each start of
 #                       the Pi, then every 24 hours – same as System → System updates → Install automatically
@@ -30,7 +38,8 @@
 #                       plus any given here
 #   --offline           don't use the package sources: everything needed must be installed already
 #                       (also chosen by itself when the package sources can't be reached)
-#   -y, --yes           don't ask anything (scripted installs): a taken port 80 becomes 8080
+#   -y, --yes           don't ask anything (scripted installs): a taken port 80 becomes 8080, and on a
+#                       computer that isn't a Pi the default answer is taken
 set -euo pipefail
 
 APP=adi2-pi
@@ -52,6 +61,7 @@ WITH_ROON=0
 UPS_MODE=auto
 SYSTEM_NODE=0
 AUTO_UPD=""   # on | off | empty: leave as it is
+ROLE=""       # dedicated | shared | empty: a Pi, or asked below
 OFFLINE=0
 OPTS_FILE=/etc/adi2-pi/install-options
 # --same-options: the saved options first, so options given now win
@@ -81,7 +91,9 @@ while [ $# -gt 0 ]; do
     --same-options) shift ;;
     --offline) OFFLINE=1; shift ;;
     -y|--yes) ASSUME_YES=1; shift ;;
-    -h|--help) sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --dedicated) ROLE=dedicated; shift ;;
+    --shared) ROLE=shared; shift ;;
+    -h|--help) sed -n '2,44p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -96,20 +108,63 @@ warn() { printf '      %s!%s %s\n' "$Y" "$N" "$*" >&2; }
 die()  { printf '\n%s✗ %s%s\n' "$R" "$*" "$N" >&2; exit 1; }
 
 [ "$(id -u)" -eq 0 ] || die "please run with sudo: sudo $0 $*"
-if [ "$STREAMING" -eq 0 ] && [ $((WITH_AP2 + WITH_SPOTIFY + WITH_ROON)) -gt 0 ]; then
-  die "--with-airplay2 / --with-spotify / --with-roon need the streaming receivers – leave out --no-streaming / --no-bluetooth"
-fi
 [ -f "$SRC/bin/adi2-pi.js" ] || die "run this script from the unpacked adi2-pi folder"
 
 # ---------------------------------------------------------------- system check
 . /etc/os-release 2>/dev/null || true
+command -v apt-get >/dev/null 2>&1 && command -v dpkg >/dev/null 2>&1 \
+  || die "this installer is for Raspberry Pi OS, Debian, Ubuntu and Linux Mint (apt). On ${PRETTY_NAME:-this system}, set ADI-2-Pi up by hand: see \"Other Linux systems\" in README.md"
+[ -d /run/systemd/system ] || die "this installer needs systemd as the init system"
 ARCH="$(dpkg --print-architecture 2>/dev/null || uname -m)"
-printf '%sADI-2-Pi installer%s %s%s · %s%s\n' "$B" "$N" "$D" "${PRETTY_NAME:-unknown system}" "$ARCH" "$N"
-case "${VERSION_CODENAME:-}" in
-  bookworm|trixie|forky) ;;
-  *) warn "tested on Raspberry Pi OS Bookworm and Trixie; this is '${PRETTY_NAME:-unknown}'. Continuing anyway." ;;
+MODEL="$(tr -d '\0' </proc/device-tree/model 2>/dev/null || true)"
+IS_PI=0; case "$MODEL" in *"Raspberry Pi"*) IS_PI=1 ;; esac
+THIS="this computer"; [ "$IS_PI" -eq 1 ] && THIS="this Pi"
+printf '%sADI-2-Pi installer%s %s%s · %s%s%s\n' "$B" "$N" "$D" "${PRETTY_NAME:-unknown system}" "$ARCH" "${MODEL:+ · $MODEL}" "$N"
+# Debian and Raspberry Pi OS 12+, Ubuntu 22.04+ and what's based on them (Mint, LMDE)
+case "${DEBIAN_CODENAME:-${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}}" in
+  bookworm|trixie|forky|jammy|noble|oracular|plucky|questing) ;;
+  *) warn "made for Raspberry Pi OS, Debian 12+, Ubuntu 22.04+ and Linux Mint; this is '${PRETTY_NAME:-unknown}'. Continuing anyway." ;;
 esac
-[ "$ARCH" = "arm64" ] || warn "architecture is $ARCH – 64-bit Raspberry Pi OS is recommended (needed for some audio services later)."
+[ "$IS_PI" -eq 0 ] || [ "$ARCH" = "arm64" ] || warn "architecture is $ARCH – 64-bit Raspberry Pi OS is recommended (needed for some audio services later)."
+
+# ---------------------------------------------------------------- what the computer is used for
+# A Pi is taken as used for the ADI-2 only. Another computer is asked (once; the answer is kept
+# for later runs): used only for the ADI-2 → full installation; also used otherwise → remote
+# control only, and ADI-2-Pi never powers it off, restarts it or installs system updates.
+has_desktop() { systemctl is-active --quiet display-manager 2>/dev/null || [ "$(systemctl get-default 2>/dev/null)" = graphical.target ]; }
+if [ -z "$ROLE" ] && [ -f "$OPTS_FILE" ]; then
+  grep -qx -- --shared "$OPTS_FILE" && ROLE=shared
+  grep -qx -- --dedicated "$OPTS_FILE" && ROLE=dedicated
+  # installed by a version that didn't ask: stays as it was
+  [ -n "$ROLE" ] || [ "$IS_PI" -eq 1 ] || ROLE=dedicated
+fi
+if [ -z "$ROLE" ] && [ "$IS_PI" -eq 0 ]; then
+  DEF=dedicated; has_desktop && DEF=shared
+  if [ "$ASSUME_YES" -eq 0 ] && [ -t 0 ]; then
+    printf '\n'
+    say "This computer is not a Raspberry Pi$(has_desktop && echo ', and it has a desktop')."
+    say "${B}Used only for the ADI-2:${N} full installation – audio service, Bluetooth, network"
+    say "  receivers, shutdown with the ADI-2, system updates."
+    say "${B}Also used otherwise:${N} remote control only – the desktop keeps the ADI-2 as its sound"
+    say "  card and its Bluetooth; ADI-2-Pi never shuts the computer down or installs updates."
+    while :; do
+      printf '      Is this computer used only for the ADI-2? [%s] ' "$([ "$DEF" = dedicated ] && echo Y/n || echo y/N)"
+      read -r ANS || ANS=""
+      case "$ANS" in
+        '') ROLE="$DEF"; break ;;
+        [yYjJ]*) ROLE=dedicated; break ;;
+        [nN]*) ROLE=shared; break ;;
+      esac
+    done
+  else
+    ROLE="$DEF"
+    say "not a Raspberry Pi$(has_desktop && echo ', with a desktop') – $([ "$ROLE" = shared ] && echo 'remote control only (--shared)' || echo 'full installation (--dedicated)')"
+  fi
+fi
+SHARED=0; [ "$ROLE" = shared ] && { SHARED=1; AUDIO=0; STREAMING=0; }
+if [ "$STREAMING" -eq 0 ] && [ $((WITH_AP2 + WITH_SPOTIFY + WITH_ROON)) -gt 0 ]; then
+  die "--with-airplay2 / --with-spotify / --with-roon need the streaming receivers – leave out --no-streaming / --no-bluetooth / --shared"
+fi
 
 # PulseAudio installed? Then no streaming receivers (they need PipeWire's PulseAudio server)
 PA_KEPT=0
@@ -156,7 +211,7 @@ else
     U="$(port_user "$PORT")"
     FREE=8080; while port_in_use "$FREE"; do FREE=$((FREE + 1)); done
     if [ "$ASSUME_YES" -eq 0 ] && [ -t 0 ]; then
-      warn "port $PORT is already used on this Pi${U:+ (by $U)}"
+      warn "port $PORT is already used on $THIS${U:+ (by $U)}"
       while :; do
         printf "      Port for ADI-2-Pi's web page [%s]: " "$FREE"
         read -r ANS || ANS=""
@@ -166,7 +221,7 @@ else
         else PORT="$ANS"; break; fi
       done
     else
-      warn "port $PORT is already used on this Pi${U:+ (by $U)} – using port $FREE"
+      warn "port $PORT is already used on $THIS${U:+ (by $U)} – using port $FREE"
       PORT="$FREE"
     fi
   fi
@@ -186,7 +241,8 @@ export DEBIAN_FRONTEND=noninteractive
 if command -v fuser >/dev/null 2>&1 && fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock >/dev/null 2>&1; then
   say "another package update is running – waiting for it to finish…"
 fi
-PKGS="avahi-daemon alsa-utils gpiod i2c-tools"   # Node.js below; gpiod: ADI-2 trigger; i2c-tools: UPS HAT (both optional)
+PKGS="avahi-daemon alsa-utils"   # Node.js below
+[ "$IS_PI" -eq 1 ] && PKGS="$PKGS gpiod i2c-tools"   # ADI-2 trigger on a GPIO, UPS HAT (both optional)
 # audio: PipeWire + WirePlumber (Bluetooth codecs SBC/SBC-XQ, aptX/aptX HD, LDAC come with
 # libspa-0.2-bluetooth), BlueZ, and Python's D-Bus bindings for pairing
 [ "$AUDIO" -eq 1 ] && PKGS="$PKGS pipewire pipewire-bin wireplumber libspa-0.2-bluetooth bluez dbus python3 python3-dbus python3-gi rfkill"
@@ -207,7 +263,7 @@ fi
 # offline: what is missing can't be installed
 missing_pkgs() { local p; for p in "$@"; do dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q 'install ok installed' || printf '%s ' "$p"; done; }
 
-# Node.js: 24 LTS from NodeSource's apt repository (amd64/arm64 only), or Raspberry Pi OS's own
+# Node.js: 24 LTS from NodeSource's apt repository (amd64/arm64 only), or the system's own
 # with --system-node. Same file names as NodeSource's setup script, so either replaces the other.
 NS_KEY=/usr/share/keyrings/nodesource.gpg
 NS_LIST=/etc/apt/sources.list.d/nodesource.sources
@@ -221,7 +277,7 @@ if [ "$OFFLINE" -eq 1 ]; then
 fi
 case "$ARCH" in
   amd64|arm64) ;;
-  *) [ "$NODE_FROM" = nodesource ] && warn "NodeSource has Node.js 24 for 64-bit systems only – using Raspberry Pi OS's Node.js"; NODE_FROM=system ;;
+  *) [ "$NODE_FROM" = nodesource ] && warn "NodeSource has Node.js 24 for 64-bit systems only – using the system's Node.js"; NODE_FROM=system ;;
 esac
 ns_remove() { rm -f "$NS_LIST" "$NS_PIN" "$NS_KEY" /usr/share/keyrings/nodesource.asc; }
 if [ "${NODE_FROM_KEPT:-0}" -eq 1 ]; then
@@ -243,28 +299,28 @@ elif [ "$NODE_FROM" = nodesource ]; then
     # (captured first: grep -q stops reading early, and with pipefail the pipe would then fail)
     NS_POLICY="$(apt-cache policy nodejs 2>/dev/null || true)"
     if ! grep -q 'deb\.nodesource\.com' <<<"$NS_POLICY"; then
-      warn "NodeSource's repository can't be read – using Raspberry Pi OS's Node.js. apt said:"
+      warn "NodeSource's repository can't be read – using the system's Node.js. apt said:"
       printf '%s\n' "$NS_OUT" | grep -iE 'nodesource|^(E|W|Err):' | head -n 8 | sed 's/^/        /' >&2
       ns_remove; apt-get -o DPkg::Lock::Timeout=900 update -qq; NODE_FROM=system
     fi
   else
     rm -f "$NS_KEY.tmp"
-    warn "NodeSource's signing key can't be downloaded – using Raspberry Pi OS's Node.js"
+    warn "NodeSource's signing key can't be downloaded – using the system's Node.js"
     NODE_FROM=system
   fi
 fi
 if [ "${NODE_FROM_KEPT:-0}" -eq 1 ]; then
   :
 elif [ "$NODE_FROM" = nodesource ]; then
-  apt-get -o DPkg::Lock::Timeout=900 install -y -qq nodejs >/dev/null || die "installing Node.js 24 failed – run again with --system-node to use Raspberry Pi OS's Node.js"
+  apt-get -o DPkg::Lock::Timeout=900 install -y -qq nodejs >/dev/null || die "installing Node.js 24 failed – run again with --system-node to use the system's Node.js"
 else
   if [ -f "$NS_LIST" ]; then
     say "removing NodeSource's repository"
     ns_remove; apt-get -o DPkg::Lock::Timeout=900 update -qq
   fi
-  # the newest version Raspberry Pi OS has; may be older than an installed NodeSource one
+  # the newest version the system's package sources have; may be older than an installed NodeSource one
   NODE_V="$(apt-cache madison nodejs 2>/dev/null | awk 'NR==1 { print $3 }')"
-  [ -n "$NODE_V" ] || die "Raspberry Pi OS has no nodejs package here"
+  [ -n "$NODE_V" ] || die "the package sources have no nodejs package"
   apt-get -o DPkg::Lock::Timeout=900 install -y -qq --allow-downgrades --no-install-recommends "nodejs=$NODE_V" >/dev/null
 fi
 
@@ -272,7 +328,7 @@ say "${D}$PKGS${N}"
 if [ "$OFFLINE" -eq 1 ]; then
   # shellcheck disable=SC2086
   MISSING="$(missing_pkgs $PKGS)"
-  [ -z "$MISSING" ] || die "offline, and these packages are missing: $MISSING– connect the Pi to the internet and run the installer again"
+  [ -z "$MISSING" ] || die "offline, and these packages are missing: $MISSING– connect $THIS to the internet and run the installer again"
   # shellcheck disable=SC2086
   [ -z "${RX_PKGS:-}" ] || { MISSING="$(missing_pkgs $RX_PKGS)"; [ -z "$MISSING" ] || warn "offline – not installed: $MISSING(the receivers that need them stay off)"; }
 else
@@ -294,9 +350,9 @@ if [ "$AUDIO" -eq 1 ] && [ "$OFFLINE" -eq 0 ] && ! command -v dbus-run-session >
 fi
 
 NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
-[ "$NODE_MAJOR" -ge 18 ] || die "Node.js 18 or newer is needed, found $(node -v 2>/dev/null || echo none). Please update Raspberry Pi OS to Bookworm or newer."
+[ "$NODE_MAJOR" -ge 18 ] || die "Node.js 18 or newer is needed, found $(node -v 2>/dev/null || echo none). Run the installer without --system-node, or update the system."
 [ "$NODE_FROM" = nodesource ] && [ "$NODE_MAJOR" -lt 24 ] && warn "Node.js $(node -v) is installed instead of 24 – NodeSource's package was not used"
-ok "packages installed (Node.js $(node -v), $([ "$NODE_FROM" = nodesource ] && echo NodeSource || echo "Raspberry Pi OS"))"
+ok "packages installed (Node.js $(node -v), $([ "$NODE_FROM" = nodesource ] && echo NodeSource || echo "the system's packages"))"
 
 # ---------------------------------------------------------------- user + files
 step "Copying ADI-2-Pi to $DEST"
@@ -309,7 +365,17 @@ fi
 # GPIO access (trigger: shut down with the ADI-2) and permission to power the Pi off
 getent group gpio >/dev/null && usermod -a -G gpio "$SVC_USER"
 getent group i2c >/dev/null && usermod -a -G i2c "$SVC_USER"
-if [ -d /etc/polkit-1/rules.d ] || command -v pkaction >/dev/null 2>&1; then
+if [ "$SHARED" -eq 1 ] && { [ -d /etc/polkit-1/rules.d ] || command -v pkaction >/dev/null 2>&1; }; then
+  # also used otherwise: no power-off, no restart, no system updates – only ADI-2-Pi's own update service
+  install -d /etc/polkit-1/rules.d
+  cat > /etc/polkit-1/rules.d/50-adi2-pi.rules <<'EOF3'
+// installed by adi2-pi (--shared): ADI-2-Pi updates – start the update service, nothing else
+polkit.addRule(function (action, subject) {
+  if (subject.user == "adi2pi" && action.id == "org.freedesktop.systemd1.manage-units" && action.lookup("verb") == "start" &&
+      action.lookup("unit") == "adi2-pi-self-update.service") return polkit.Result.YES;
+});
+EOF3
+elif [ -d /etc/polkit-1/rules.d ] || command -v pkaction >/dev/null 2>&1; then
   install -d /etc/polkit-1/rules.d
   cat > /etc/polkit-1/rules.d/50-adi2-pi.rules <<'EOF3'
 // installed by adi2-pi: the bridge may power the Pi off (Trigger: shut down with the ADI-2, off by default)
@@ -343,8 +409,12 @@ chmod 0755 "$DEST/bin/adi2-pi.js" "$DEST/bin/adi2-pi-hook.js" "$DEST/uninstall.s
 chown -R root:root "$DEST"
 # System → System updates: two root services ADI-2-Pi may start (polkit rule above); their output in /var/log/adi2-pi
 install -d -m 0755 /var/log/adi2-pi
-install -m 0644 "$SRC/systemd/adi2-pi-os-check.service" /etc/systemd/system/adi2-pi-os-check.service
-install -m 0644 "$SRC/systemd/adi2-pi-os-upgrade.service" /etc/systemd/system/adi2-pi-os-upgrade.service
+if [ "$SHARED" -eq 1 ]; then
+  rm -f /etc/systemd/system/adi2-pi-os-check.service /etc/systemd/system/adi2-pi-os-upgrade.service
+else
+  install -m 0644 "$SRC/systemd/adi2-pi-os-check.service" /etc/systemd/system/adi2-pi-os-check.service
+  install -m 0644 "$SRC/systemd/adi2-pi-os-upgrade.service" /etc/systemd/system/adi2-pi-os-upgrade.service
+fi
 # ADI-2-Pi updates → Install from a file: a root service for a signed release ADI-2-Pi stages
 install -m 0644 "$SRC/systemd/adi2-pi-self-update.service" /etc/systemd/system/adi2-pi-self-update.service
 
@@ -356,6 +426,18 @@ node -e '
   let s = {}; try { s = JSON.parse(fs.readFileSync(f, "utf8")); } catch {}
   if (s.port !== port) { s.port = port; fs.writeFileSync(f + ".tmp", JSON.stringify(s, null, 2) + "\n"); fs.renameSync(f + ".tmp", f); }
 ' "$DATA/settings.json" "$PORT"
+# --shared: no system updates, no shutdown with the ADI-2
+[ "$SHARED" -eq 1 ] && [ "$AUTO_UPD" = on ] && warn "--auto-updates is ignored with --shared (the computer's own update tool installs system updates)"
+[ "$SHARED" -eq 1 ] && AUTO_UPD=""
+if [ "$SHARED" -eq 1 ]; then
+  node -e '
+    const fs = require("fs"); const f = process.argv[1];
+    let s = {}; try { s = JSON.parse(fs.readFileSync(f, "utf8")); } catch {}
+    s.osUpdates = { ...(s.osUpdates || {}), mode: "off" };
+    s.trigger = { ...(s.trigger || {}), enabled: false };
+    fs.writeFileSync(f + ".tmp", JSON.stringify(s, null, 2) + "\n"); fs.renameSync(f + ".tmp", f);
+  ' "$DATA/settings.json"
+fi
 # --auto-updates / --no-auto-updates: System updates → Install automatically / Off
 if [ -n "$AUTO_UPD" ]; then
   node -e '
@@ -368,7 +450,7 @@ fi
 chown "$SVC_USER:$SVC_USER" "$DATA/settings.json"
 chmod 0600 "$DATA/settings.json"   # holds the access key hash and the MQTT password
 ok "version $(node -p "require('$DEST/package.json').version"), settings in $DATA, web page on port $PORT"
-[ "$AUTO_UPD" = on ] && say "system updates: installed automatically 5 minutes after each start of the Pi, then every 24 hours"
+[ "$AUTO_UPD" = on ] && say "system updates: installed automatically 5 minutes after each start of $THIS, then every 24 hours"
 [ "$AUTO_UPD" = off ] && say "system updates: only when asked for on the System tab"
 
 # ---------------------------------------------------------------- PipeWire MIDI
@@ -608,8 +690,9 @@ gpio3_low() {
   [ "$v" = 0 ]
 }
 TRIGGER_GPIO3=0; TRIGGER_WIRED=0
-if [ -f "$DATA/settings.json" ] && node -e "const t=require('$DATA/settings.json').trigger||{};process.exit(t.enabled&&t.source==='gpio'&&(t.pin||3)===3?0:1)" 2>/dev/null; then TRIGGER_GPIO3=1; fi
-if [ ! -e /dev/i2c-1 ] && gpio3_low; then TRIGGER_WIRED=1; fi
+[ "$IS_PI" -eq 1 ] || UPS_MODE=off   # GPIO and I²C HATs: Raspberry Pi only
+if [ "$IS_PI" -eq 1 ] && [ -f "$DATA/settings.json" ] && node -e "const t=require('$DATA/settings.json').trigger||{};process.exit(t.enabled&&t.source==='gpio'&&(t.pin||3)===3?0:1)" 2>/dev/null; then TRIGGER_GPIO3=1; fi
+if [ "$IS_PI" -eq 1 ] && [ ! -e /dev/i2c-1 ] && gpio3_low; then TRIGGER_WIRED=1; fi
 ups_probe() {   # prints the model found on I²C bus 1, or nothing
   if [ "$(i2cget -y 1 0x2d 0x00 b 2>/dev/null)" = "0x0a" ]; then echo "Waveshare UPS HAT (E)"; return; fi
   if i2cget -y 1 0x42 0x02 w >/dev/null 2>&1; then echo "Waveshare UPS HAT / UPS HAT (B)"; return; fi
@@ -660,6 +743,7 @@ fi
 install -m 0644 "$SRC/systemd/adi2-pi.service" /etc/systemd/system/adi2-pi.service
 [ "$AUDIO" -eq 1 ] || sed -i 's#^\(ExecStart=.*adi2-pi.js.*\)$#\1 --no-audio#' /etc/systemd/system/adi2-pi.service
 [ "$AUDIO" -eq 0 ] || [ "$STREAMING" -eq 1 ] || sed -i 's#^\(ExecStart=.*adi2-pi.js.*\)$#\1 --no-streaming#' /etc/systemd/system/adi2-pi.service
+[ "$SHARED" -eq 0 ] || sed -i 's#^\(ExecStart=.*adi2-pi.js.*\)$#\1 --shared#' /etc/systemd/system/adi2-pi.service
 sed "s/@PORT@/$PORT/g" "$SRC/systemd/adi2-pi.avahi.xml" > /etc/avahi/services/adi2-pi.service
 systemctl daemon-reload
 systemctl enable --now avahi-daemon >/dev/null 2>&1 || warn "avahi-daemon could not be started – the bridge won't be found by name"
@@ -678,14 +762,15 @@ opt() { if [ "$1" -eq 1 ]; then echo "$2"; fi; }
 install -d -m 0755 "$(dirname "$OPTS_FILE")"
 {
   echo "# options of the last install.sh run – read by install.sh --same-options"
-  opt $((1 - AUDIO)) --no-bluetooth
+  [ -n "$ROLE" ] && echo "--$ROLE"
+  opt $(( AUDIO == 0 && SHARED == 0 ? 1 : 0 )) --no-bluetooth
   opt $(( AUDIO == 1 && STREAMING == 0 && PA_KEPT == 0 ? 1 : 0 )) --no-streaming
   opt $(( WITH_SPOTIFY == 1 || $([ -f /etc/apt/sources.list.d/raspotify.list ] && echo 1 || echo 0) == 1 ? 1 : 0 )) --with-spotify
   opt $(( WITH_ROON == 1 || $([ -d /opt/RoonBridge ] && echo 1 || echo 0) == 1 ? 1 : 0 )) --with-roon
   opt $(( JOURNAL_RAM == 1 || $([ -f /etc/systemd/journald.conf.d/50-adi2-pi-volatile.conf ] && echo 1 || echo 0) == 1 ? 1 : 0 )) --journal-ram
   opt "$KEEP_PW_MIDI" --keep-pipewire-midi
   opt "$SYSTEM_NODE" --system-node
-  opt "$([ "$UPS_MODE" = off ] && echo 1 || echo 0)" --no-ups
+  opt "$([ "$UPS_MODE" = off ] && [ "$IS_PI" -eq 1 ] && echo 1 || echo 0)" --no-ups
 } > "$OPTS_FILE"
 
 HOST="$(hostname)"
@@ -700,6 +785,7 @@ fi
 printf '\n%s✓ ADI-2-Pi is ready.%s\n\n' "$G$B" "$N"
 printf '  Open     %s%s%s  (or %s)\n' "$B" "$URL" "$N" "$IPURL"
 [ "$AUDIO" -eq 1 ] && printf '  Pair     phones and headphones on the Bluetooth tab\n'
+[ "$SHARED" -eq 1 ] && printf '  Mode     remote control only (--shared): the desktop keeps the ADI-2 and Bluetooth\n'
 printf '  Log      journalctl -u %s -f\n' "$APP"
 printf '  Remove   sudo %s/uninstall.sh\n' "$DEST"
 if ! grep -q 'answers on ID' <<<"$(journalctl -u "$APP" -n 20 --no-pager 2>/dev/null || true)"; then

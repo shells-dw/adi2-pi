@@ -4,7 +4,7 @@
  * ADI-2-Pi – network remote for RME ADI-2 series converters on a Raspberry Pi.
  *
  *   adi2-pi [--port 80] [--data /var/lib/adi2-pi] [--device /dev/snd/midiC1D0]
- *               [--mock pro|se|se-ex|dac] [--host ::] [--allow-origin https://example] [--no-audio] [--no-streaming] [--verbose]
+ *               [--mock pro|se|se-ex|dac] [--shared] [--host ::] [--allow-origin https://example] [--no-audio] [--no-streaming] [--verbose]
  */
 const path = require('path');
 const { Settings } = require('../lib/settings');
@@ -45,9 +45,10 @@ function parseArgs(argv) {
       case '--verbose': a.verbose = true; break;
       case '--no-audio': a.noAudio = true; break;
       case '--no-streaming': a.noStreaming = true; break;
+      case '--shared': a.shared = true; break; // the computer is also used otherwise: never powered off or restarted, no system updates
       case '--version': console.log(version); process.exit(0); break;
       case '-h': case '--help':
-        console.log('usage: adi2-pi [--port N] [--data DIR] [--device PATH] [--mock pro|se|se-ex|dac] [--host ADDR] [--allow-origin URL] [--no-audio] [--no-streaming] [--verbose]');
+        console.log('usage: adi2-pi [--port N] [--data DIR] [--device PATH] [--mock pro|se|se-ex|dac] [--shared] [--host ADDR] [--allow-origin URL] [--no-audio] [--no-streaming] [--verbose]');
         process.exit(0); break;
       default:
         console.error(`unknown option ${k}`);
@@ -119,9 +120,10 @@ if (receivers) {
 const automation = new Automation({ dev, settings, bt, audio, log });
 const restore = new Restore({ dev, settings, log });
 // Waveshare UPS HAT on I²C (if there is one); simulated with --mock
+const shared = !!args.shared;
 const ups = args.mock
-  ? new Ups({ getSettings: () => settings.get(), log, devPath: __filename, powerOff: async () => log.info('ups: (simulated) poweroff'), run: mockUpsRun() })
-  : new Ups({ getSettings: () => settings.get(), log });
+  ? new Ups({ getSettings: () => settings.get(), log, devPath: __filename, powerOff: async () => log.info('ups: (simulated) poweroff'), run: mockUpsRun(), shared })
+  : new Ups({ getSettings: () => settings.get(), log, shared });
 // update check (off by default): GitHub's latest release, notification only
 const updates = new Updates({ settings, version, log, ...(args.mock ? { fetch: mockReleaseFetch } : {}) });
 const mqtt = new MqttBridge({ dev, settings, log, automation, version, ups, updates, nowPlaying });
@@ -131,8 +133,8 @@ const selfUpdate = args.mock
   : new SelfUpdate({ dataDir, version, log });
 // system updates (apt) through two root services; simulated with --mock
 const osUpdates = args.mock
-  ? new OsUpdates({ settings, dataDir, log, installed: true, uptime: 30, run: mockAptRun(), kernel: () => null, restartSelf: () => log.info('os updates: (simulated) restart for the new Node.js') })
-  : new OsUpdates({ settings, dataDir, log });
+  ? new OsUpdates({ settings, dataDir, log, installed: true, uptime: 30, run: mockAptRun(), kernel: () => null, restartSelf: () => log.info('os updates: (simulated) restart for the new Node.js'), shared })
+  : new OsUpdates({ settings, dataDir, log, shared });
 
 // while the Pi plays, the ADI-2's outputs switch to USB (and back afterwards)
 const autoSource = audio ? new AutoSource({ dev, audio, settings, log }) : null;
@@ -141,8 +143,8 @@ const inputPriority = new InputPriority({ dev, settings, log });
 const trigger = args.mock
   ? new Trigger({ getSettings: () => settings.get(), getDevice: () => dev.info(), log, model: 'Raspberry Pi 4 Model B (simulated)', powerOff: async () => log.info('trigger: (simulated) poweroff'),
     run: async (cmd) => (cmd === 'gpiodetect' ? { code: 0, out: 'gpiochip0 [pinctrl-bcm2711] (58 lines)\n' } : cmd === 'gpioget' ? { code: 0, out: 'gpioget (libgpiod) v1.6.3\n0\n' } : { code: 1, out: '' }),
-    packagesBusy: () => osUpdates.busy() || selfUpdate.busy(), updatesPending: () => osUpdates.pendingAfterStart() })
-  : new Trigger({ getSettings: () => settings.get(), getDevice: () => dev.info(), log,
+    packagesBusy: () => osUpdates.busy() || selfUpdate.busy(), updatesPending: () => osUpdates.pendingAfterStart(), shared })
+  : new Trigger({ getSettings: () => settings.get(), getDevice: () => dev.info(), log, shared,
     packagesBusy: () => packagesBusy() || osUpdates.busy() || selfUpdate.busy(), updatesPending: () => osUpdates.pendingAfterStart() });
 settings.on('change', () => trigger.apply());
 // "Install automatically": a newer signed release found by the update check is installed when the
@@ -151,7 +153,7 @@ updates.on('found', (latest) => selfUpdate.autoInstall(latest, {
   enabled: () => !!(settings.get().updates || {}).auto,
   playing: () => { const a = audio && audio.status(); return !!(a && a.available && ((a.sources || []).some((x) => x.playing) || (a.outputs || []).length)); },
 }));
-const { server, wss } = createServer({ dev, settings, version, log, allowOrigins: args.allowOrigins, dataDir, bt, audio, receivers, autoSource, trigger, automation, streamVolume, restore, mqtt, ups, updates, osUpdates, selfUpdate, nowPlaying, inputPriority });
+const { server, wss } = createServer({ dev, settings, version, log, allowOrigins: args.allowOrigins, dataDir, shared, pi: args.mock ? true : undefined, bt, audio, receivers, autoSource, trigger, automation, streamVolume, restore, mqtt, ups, updates, osUpdates, selfUpdate, nowPlaying, inputPriority });
 
 server.on('error', (e) => {
   if (e.code === 'EADDRINUSE') log.warn(`port ${port} is already in use – set another one with --port or in settings.json`);

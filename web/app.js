@@ -61,6 +61,8 @@
   const subs = new Map();  // key → Set(fn)
   const touched = new Map(); // key → time of last local change (ignore stale echoes while dragging)
   const model = () => S.device.model || 'pro';
+  /** ADI-2-Pi runs on a Raspberry Pi (GPIO trigger, UPS HAT); older bridges don't say: taken as yes. */
+  const isPi = () => !S.bridge || S.bridge.pi !== false;
   /** Model plus what changes value names ("se-ex", "pro@dac"); keys most specific first, as lib/catalog.js profileKeys. */
   const profile = () => S.device.profile || model();
   function profileKeys() {
@@ -2147,12 +2149,13 @@
         return set.length ? set.join(' · ') : tr('no limits');
       } }),
       sec(streamVolumeCard(), { group: tr('Volume'), icon: 'phone', summary: () => onOff((S.settings.streamVolume || {}).enabled) }),
-      sec(triggerCard(), { group: tr('Power'), icon: 'power', summary: () => onOff(S.trigger && S.trigger.enabled) }),
-      sec(upsCard(), { group: tr('Power'), icon: 'battery', summary: () => (S.ups && S.ups.present ? (S.ups.available ? `${S.ups.percent} %` : tr('found')) : tr('not found')) }),
+      // also used otherwise (--shared): never powered off by ADI-2-Pi; UPS HAT: Raspberry Pi only
+      S.bridge.shared ? null : sec(triggerCard(), { group: tr('Power'), icon: 'power', summary: () => onOff(S.trigger && S.trigger.enabled) }),
+      isPi() || (S.ups && S.ups.present) ? sec(upsCard(), { group: tr('Power'), icon: 'battery', summary: () => (S.ups && S.ups.present ? (S.ups.available ? `${S.ups.percent} %` : tr('found')) : tr('not found')) }) : null,
       sec(accessCard(), { group: tr('Network & data'), icon: 'lock', summary: () => { const a = S.settings.access || {}; return a.enabled ? (a.viewOpen ? tr('changes only') : tr('On')) : tr('Off'); } }),
       sec(mqttCard(), { group: tr('Network & data'), icon: 'home', summary: () => { const m = S.settings.mqtt || {}; return !m.enabled ? tr('Off') : S.mqtt && S.mqtt.connected ? tr('connected') : tr('On'); } }),
       sec(updatesCard(), { group: tr('Network & data'), icon: 'update', summary: () => (S.updates && S.updates.available && S.updates.latest ? tr('{0} available', [S.updates.latest.version]) : S.bridge.version) }),
-      sec(osUpdatesCard(), { group: tr('Network & data'), icon: 'package', summary: () => osUpdatesSummary() }),
+      S.bridge.shared ? null : sec(osUpdatesCard(), { group: tr('Network & data'), icon: 'package', summary: () => osUpdatesSummary() }),
       sec(backupCard(), { group: tr('Network & data'), icon: 'backup' }),
       sec(debugCard, { group: tr('This browser'), icon: 'tool', summary: () => (debugOn() ? tr('Debug tab shown') : '') }),
     ]);
@@ -2231,7 +2234,7 @@
       const sw = h('button', { class: 'sw', role: 'switch', 'aria-checked': t.enabled ? 'true' : 'false', 'aria-label': tr('Shut down with the ADI-2'), onclick: () => act({ enabled: !t.enabled }) });
       const usb = t.source !== 'gpio';
       const src = h('select', { 'aria-label': tr('Detect standby by'), onchange: () => act({ source: src.value }) },
-        [['usb', tr('USB connection')], ['gpio', tr('12 V trigger on a GPIO')]].map(([v, l]) => h('option', { value: v, text: l, selected: (t.source || 'usb') === v })));
+        [['usb', tr('USB connection')], ...(isPi() || !usb ? [['gpio', tr('12 V trigger on a GPIO')]] : [])].map(([v, l]) => h('option', { value: v, text: l, selected: (t.source || 'usb') === v })));
       const pinSel = h('select', { 'aria-label': tr('Trigger GPIO'), onchange: () => act({ pin: Number(pinSel.value) }) },
         [3, 4, 17, 22, 23, 24, 25, 27].map((p) => h('option', { value: p, text: p === 3 ? tr('GPIO3 (pin 5) – also starts the Pi') : tr('GPIO{0}', [p]), selected: (t.pin || 3) === p })));
       const delay = h('select', { 'aria-label': tr('Delay'), disabled: !t.enabled, onchange: () => act({ delaySec: Number(delay.value) }) },
@@ -2688,7 +2691,8 @@
         [[10, '10 s'], [30, '30 s'], [60, tr('1 min')], [120, tr('2 min')], [300, tr('5 min')], [600, tr('10 min')]].map(([v, l]) => h('option', { value: v, text: l, selected: u.delaySec === v })));
       const low = h('select', { 'aria-label': tr('Low battery'), disabled: !u.shutdown, onchange: () => act({ lowPct: Number(low.value) }) },
         [5, 10, 15, 20, 30, 50].map((v) => h('option', { value: v, text: `${v} %`, selected: u.lowPct === v })));
-      body.replaceChildren(...rows,
+      if (S.bridge.shared) body.replaceChildren(...rows);
+      else body.replaceChildren(...rows,
         h('div', { class: 'row' }, h('div', { class: 'lab' }, tr('Shut down on battery'), h('small', null, tr('when the UPS loses its power'))), h('div', { class: 'ctl' }, sw)),
         h('div', { class: 'row' }, h('div', { class: 'lab' }, tr('After')), h('div', { class: 'ctl' }, delay)),
         h('div', { class: 'row' }, h('div', { class: 'lab' }, tr('Or when the battery is at')), h('div', { class: 'ctl' }, low)),
