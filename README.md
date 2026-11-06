@@ -147,7 +147,7 @@ Other distributions (Fedora, Arch …): remote control only, set up by hand.
 | Streaming | Network receivers on/off, server addresses |
 | Scenes & Actions | Sleep timer, input priority, headphone profiles, scenes, actions |
 | Headphone EQ | Headphone EQ Generator |
-| System | Bridge name, language; *Volume*: per output the highest volume, the level at start and the quick levels, rise speed, linked outputs; volume from the sender, shutdown with the ADI-2, UPS HAT, access key, MQTT, ADI-2-Pi updates, system updates, backup/restore, Debug tab switch |
+| System | Bridge name, language, running time; the Pi (or computer): running time, CPU temperature and use, load, memory, storage, power supply; *Volume*: per output the highest volume, the level at start and the quick levels, rise speed, linked outputs; volume from the sender, shutdown with the ADI-2, UPS HAT, access key, MQTT, ADI-2-Pi updates, system updates, backup/restore, Debug tab switch |
 | Debug | Shown when enabled under System (per browser): changes sent to the unit with their origin, parameters not in the schema, MIDI monitor, connection log, parameter table, status recorder |
 
 Device, Pi Playback, Bluetooth, Streaming, Scenes & Actions and System are lists of sections: on a

@@ -571,6 +571,7 @@
     music: 'M9 18V5l12-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM21 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0z',
     wave: 'M3 12h4l3-8 4 16 3-8h4',
     clock: 'M12 7v5l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z',
+    chip: 'M7 7h10v10H7zM4 10h3M4 14h3M17 10h3M17 14h3M10 4v3M14 4v3M10 17v3M14 17v3',
     moon: 'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z',
     list: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',
     headphones: 'M3 18v-6a9 9 0 0 1 18 0v6M21 19a2 2 0 0 1-2 2h-1v-6h3zM3 19a2 2 0 0 0 2 2h1v-6H3z',
@@ -2111,23 +2112,72 @@
     monitorEl.scrollTop = monitorEl.scrollHeight;
   }
 
-  /** How long ADI-2-Pi and the Pi (or computer) have been running; counted on from the hello message. */
+  const since = (sec) => new Date(Date.now() - sec * 1000).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
+  /** Seconds since the hello message (its uptimes are counted on from there). */
+  const goneSec = () => (Date.now() - (S.bridge.at || Date.now())) / 1000;
+  const bytesText = (b) => (b >= 1e9 ? `${(b / 1e9).toLocaleString([], { maximumFractionDigits: 1 })} GB` : `${Math.round(b / 1e6)} MB`);
+  /** Every 30 s while `el` is on the page: bridge info read again (uptimes, system stats), then `show()`. */
+  function keepFresh(el, show) {
+    const timer = setInterval(() => {
+      if (!el.isConnected) return clearInterval(timer);
+      fetch('/api/info').then((r) => r.json()).then((j) => { if (j.bridge) S.bridge = { ...j.bridge, at: Date.now() }; }).catch(() => {}).then(show);
+    }, 30000);
+  }
+
+  /** "ADI-2-Pi running for" (System → ADI-2-Pi). */
   function uptimeRows() {
     if (typeof S.bridge.uptime !== 'number') return [];
-    const app = h('div', { class: 'ctl num' }), sys = h('div', { class: 'ctl num' });
-    const since = (sec) => new Date(Date.now() - sec * 1000).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
-    const show = () => {
-      const gone = (Date.now() - (S.bridge.at || Date.now())) / 1000;
-      const a = S.bridge.uptime + gone, s = S.bridge.systemUptime + gone;
-      app.textContent = upFor(a); app.title = tr('since {0}', [since(a)]);
-      sys.textContent = upFor(s); sys.title = tr('since {0}', [since(s)]);
-    };
+    const app = h('div', { class: 'ctl num' });
+    const show = () => { const a = S.bridge.uptime + goneSec(); app.textContent = upFor(a); app.title = tr('since {0}', [since(a)]); };
     show();
-    const timer = setInterval(() => { if (app.isConnected) show(); else clearInterval(timer); }, 30000);
-    return [
-      h('div', { class: 'row' }, h('div', { class: 'lab' }, tr('ADI-2-Pi running for')), app),
-      h('div', { class: 'row' }, h('div', { class: 'lab' }, isPi() ? tr('Pi running for') : tr('Computer running for')), sys),
+    keepFresh(app, show);
+    return [h('div', { class: 'row' }, h('div', { class: 'lab' }, tr('ADI-2-Pi running for')), app)];
+  }
+
+  /** The Pi (or computer): running time, temperature, CPU, load, memory, storage, power (bridge.system). */
+  function systemCard() {
+    const sys = S.bridge.system;
+    if (!sys) return null;
+    const rows = {};
+    const cell = (k) => (rows[k] = h('div', { class: 'ctl num' }));
+    const body = [
+      ['up', tr('Running for'), cell('up')],
+      ['temperature', tr('CPU temperature'), cell('temperature')],
+      ['cpu', tr('CPU'), cell('cpu')],
+      ['load', tr('Load'), cell('load'), tr('1, 5 and 15 minutes')],
+      ['memory', tr('Memory'), cell('memory')],
+      ['storage', tr('Storage'), cell('storage'), tr('free, on the file system with ADI-2-Pi’s data')],
+      ['power', tr('Power supply'), cell('power')],
     ];
+    const power = (p) => {
+      if (!p) return null;
+      const names = { underVoltage: tr('under-voltage'), throttled: tr('throttled'), frequencyCapped: tr('frequency capped'), softTemperatureLimit: tr('temperature limit') };
+      const list = (f) => Object.keys(names).filter((k) => f[k]).map((k) => names[k]);
+      const now = list(p.now), was = list(p.occurred);
+      if (now.length) return { text: now.join(', '), bad: true };
+      if (was.length) return { text: tr('OK now; {0} since the start', [was.join(', ')]), bad: true };
+      return { text: tr('OK'), bad: false };
+    };
+    const show = () => {
+      const s = S.bridge.system || {};
+      const up = s.uptime + goneSec();
+      rows.up.textContent = upFor(up); rows.up.title = tr('since {0}', [since(up)]);
+      rows.temperature.textContent = typeof s.temperature === 'number' ? `${s.temperature.toLocaleString([], { minimumFractionDigits: 1, maximumFractionDigits: 1 })} °C` : '–';
+      rows.cpu.textContent = typeof s.cpu === 'number' ? `${s.cpu.toLocaleString([], { maximumFractionDigits: 1 })} %` : '–';
+      rows.load.textContent = s.load ? s.load.map((x) => x.toLocaleString([], { minimumFractionDigits: 2, maximumFractionDigits: 2 })).join(' · ') : '–';
+      rows.load.title = s.cpus ? tr('{0} CPU cores', [s.cpus]) : '';
+      rows.memory.textContent = s.memory ? tr('{0} of {1}', [bytesText(s.memory.used), bytesText(s.memory.total)]) : '–';
+      rows.storage.textContent = s.storage ? tr('{0} of {1}', [bytesText(s.storage.free), bytesText(s.storage.total)]) : '–';
+      const p = power(s.power);
+      rows.power.textContent = p ? p.text : '–';
+      rows.power.classList.toggle('bad', !!(p && p.bad));
+    };
+    const c = card(isPi() ? tr('Raspberry Pi') : tr('Computer'),
+      ...body.filter(([k]) => k !== 'power' || sys.power).map(([, lab, ctl, small]) => h('div', { class: 'row' }, h('div', { class: 'lab' }, lab, small ? h('small', null, small) : null), ctl)),
+      h('p', { class: 'hint help' }, tr('CPU: busy share of all cores since the previous reading. Load: runnable tasks on average; above the number of cores means waiting. Power supply: the Pi’s firmware flags – under-voltage means the power supply is too weak, the Pi then slows down.')));
+    show();
+    keepFresh(c, show);
+    return c;
   }
 
   function pageBridge() {
@@ -2148,6 +2198,7 @@
       h('div', { class: 'row' }, h('div', { class: 'lab' }, tr('API'), h('small', null, tr('for the Stream Deck plugin and apps'))), h('div', { class: 'ctl' }, h('code', null, api), copy)),
       h('p', { class: 'hint help' }, tr('Changes on this page are saved as you make them. Settings are read from the unit and only written to it when you change something.')));
     sec(general, { group: tr('General'), icon: 'general', summary: () => S.bridge.version || '' });
+    const system = sec(systemCard(), { group: tr('General'), icon: 'chip', summary: () => { const s = S.bridge.system; return s && typeof s.temperature === 'number' ? `${Math.round(s.temperature)} °C` : ''; } });
 
     // debug tools: off by default, switched on here (per browser)
     const dbg = h('button', { class: 'sw', role: 'switch', 'aria-checked': debugOn() ? 'true' : 'false', 'aria-label': tr('Debug tab'), onclick: () => {
@@ -2163,6 +2214,7 @@
     const lay = sectionLayout('bridge');
     lay.set([
       general,
+      system,
       sec(volumeCard(), { group: tr('Volume'), icon: 'volume', summary: () => {
         const l = S.settings.limits || {};
         const set = outputs().filter((c) => l[c.key] !== null && l[c.key] !== undefined).map((c) => `${chName(c)} ${fmtDb(l[c.key])}`);

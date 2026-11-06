@@ -412,6 +412,7 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; color:
 /* ---------- State ---------- */
 .tbl.state th[scope], .tbl.state tbody th { text-align: left; white-space: nowrap; font-weight: 600; color: var(--text); font-size: 12.5px; }
 .tbl.state td.bad { color: var(--danger); }
+.ctl.bad { color: var(--danger); font-weight: 600; }
 .tbl.state .chip { cursor: default; margin-right: 4px; }
 .bits { display: flex; flex-direction: column; gap: 6px; }
 .bitrow { display: grid; grid-template-columns: 82px minmax(0, 1fr) auto; align-items: center; gap: 10px; }
