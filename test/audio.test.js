@@ -125,6 +125,31 @@ test('reports a missing audio service in plain words', async () => {
   assert.match(audio.status().reason, /adi2-pi-audio/);
 });
 
+test('a volume PipeWire does not keep is set once, not on every read', async () => {
+  // the ADI-2's record side stays at 1.0 whatever is asked (as with a hardware mixer); wanted: +20 dB = 10×
+  const node = (id, cls, vol) => ({ id, type: 'PipeWire:Interface:Node', info: { state: 'suspended', props: { 'node.name': `alsa_${cls === 'Audio/Sink' ? 'output' : 'input'}.usb-RME_ADI-2_Pro-00.analog-stereo`, 'media.class': cls, 'api.alsa.card.name': 'ADI-2 Pro (12345)' }, params: { Props: [{ channelVolumes: [vol, vol], mute: false }] } } });
+  const dump = () => JSON.stringify([
+    node(40, 'Audio/Sink', 1), node(50, 'Audio/Source', 1),
+    { id: 30, type: 'PipeWire:Interface:Metadata', props: { 'metadata.name': 'default' }, metadata: [{ subject: 0, key: 'default.audio.sink', value: { name: 'alsa_output.usb-RME_ADI-2_Pro-00.analog-stereo' } }, { subject: 0, key: 'default.configured.audio.sink', value: { name: 'alsa_output.usb-RME_ADI-2_Pro-00.analog-stereo' } }] },
+    { id: 31, type: 'PipeWire:Interface:Metadata', props: { 'metadata.name': 'settings' }, metadata: [] },
+  ]);
+  const calls = [];
+  const warned = [];
+  const settings = { bluetooth: { outSource: 'off', gainDb: 20 }, routing: { mode: 'newest', rate: 0 } };
+  const audio = new Audio({ log: { ...quiet, warn: (m) => warned.push(m) }, getSettings: () => settings, pollMs: 30, run: async (cmd, args) => { calls.push([cmd, ...args].join(' ')); return cmd === 'pw-dump' ? { ok: true, stdout: dump(), stderr: '' } : { ok: true, stdout: '', stderr: '' }; } });
+  audio.start();
+  await until(() => calls.filter((c) => c.startsWith('pw-dump')).length >= 10);
+  const sets = calls.filter((c) => c.startsWith('wpctl set-volume'));
+  assert.deepStrictEqual(sets, ['wpctl set-volume 50 2.1544'], 'asked once');
+  assert.strictEqual(warned.filter((m) => /keeps .* at 0\.0\/0\.0 dB, not the 20\.0 dB/.test(m)).length, 1, 'said once');
+  // the wanted level changes: asked again, once
+  settings.bluetooth.gainDb = 6;
+  const n = calls.length;
+  await until(() => calls.length >= n + 6);
+  assert.deepStrictEqual(calls.slice(n).filter((c) => c.startsWith('wpctl set-volume')), ['wpctl set-volume 50 1.2589']);
+  audio.stop();
+});
+
 test('newest source wins, switch back, mix, fixed sample rate', { skip: !canRun && 'PipeWire tools missing' }, async () => {
   const rt = fs.mkdtempSync(path.join(os.tmpdir(), 'adi2pi-route-'));
   const env = { ...process.env, XDG_RUNTIME_DIR: rt };
