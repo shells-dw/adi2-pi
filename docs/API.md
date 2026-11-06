@@ -106,7 +106,7 @@ Standard WebSocket libraries answer by themselves.
 
 | `t` | Fields | When |
 |---|---|---|
-| `hello` | `api`, `access`, `bridge {name, version, host, auth, viewOpen, pi, shared}`, `device` | on connect (`auth`: an access key is set; `access`: `full`, or `read` when the connection has no valid key and `viewOpen` lets it read; `pi`: runs on a Raspberry Pi; `shared`: installed with `--shared` – `trigger` and `osUpdates` are unavailable and refused with 409, the UPS doesn't shut down) |
+| `hello` | `api`, `access`, `bridge {name, version, host, auth, viewOpen, pi, shared, uptime, systemUptime}`, `device` | on connect (`auth`: an access key is set; `access`: `full`, or `read` when the connection has no valid key and `viewOpen` lets it read; `uptime` / `systemUptime`: seconds ADI-2-Pi / the computer have been running; `pi`: runs on a Raspberry Pi; `shared`: installed with `--shared` – `trigger` and `osUpdates` are unavailable and refused with 409, the UPS doesn't shut down) |
 | `access` | `access` (`full` / `read`) | the connection's access changed because the key or `viewOpen` setting changed |
 | `state` | `device`, `p {"addr.idx": value}`, `setups [9 names]`, `eqPresets [20]`, `unitStatus`, `statusInfo`, `silences`, `bluetooth`, `streaming`, `routing`, `inputPriority`, `trigger`, `automation`, `mqtt`, `ups`, `updates`, `osUpdates`, `selfUpdate`, `nowplaying` | on connect, on `get` |
 | `settings` | `settings` | on connect and when settings change |

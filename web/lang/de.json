@@ -900,5 +900,10 @@
   "as the unit’s Toggle Ph/Line function; which outputs switch is set under Toggle Phones / Line": "wie die Funktion Toggle Ph/Line des Geräts; welche Ausgänge umschalten, legt Toggle Phones / Line fest",
   "Actions run while ADI-2-Pi runs and the ADI-2 is connected. Times are the Pi’s local time. A time action with an end time applies a second scene then. Digital input signal: AES and the SPDIF input chosen under SPDIF In (coax or optical).": "Aktionen laufen, solange ADI-2-Pi läuft und der ADI-2 verbunden ist. Zeiten sind die Ortszeit des Pi. Eine Zeitaktion mit Endzeit wendet dann eine zweite Szene an. Digitales Eingangssignal: AES und der unter SPDIF In gewählte SPDIF-Eingang, (koaxial oder optisch).",
   "Everything the Pi plays is converted to this rate, so the ADI-2 never has to switch (it mutes briefly when it does). On USB the Pi sets the ADI-2's rate, also for the analog input; with Clock Source AES or SPDIF the unit follows that input instead.": "Alles, was der Pi spielt, wird auf diese Rate gewandelt, sodass der ADI-2 nie umschalten muss (beim Umschalten ist er kurz stumm). Über USB bestimmt der Pi die Rate des ADI-2, auch für den Analogeingang; mit Clock Source AES oder SPDIF folgt das Gerät stattdessen diesem Eingang.",
-  "The ADI-2 switches to the rate of what plays – 44.1 kHz for AirPlay and Bluetooth, up to 192 kHz from UPnP, Squeezelite or Roon – and stays there afterwards. It mutes briefly when it switches.": "Der ADI-2 schaltet auf die Rate dessen, was spielt – 44,1 kHz bei AirPlay und Bluetooth, bis 192 kHz von UPnP, Squeezelite oder Roon – und bleibt danach dabei. Beim Umschalten ist er kurz stumm."
+  "The ADI-2 switches to the rate of what plays – 44.1 kHz for AirPlay and Bluetooth, up to 192 kHz from UPnP, Squeezelite or Roon – and stays there afterwards. It mutes briefly when it switches.": "Der ADI-2 schaltet auf die Rate dessen, was spielt – 44,1 kHz bei AirPlay und Bluetooth, bis 192 kHz von UPnP, Squeezelite oder Roon – und bleibt danach dabei. Beim Umschalten ist er kurz stumm.",
+  "{0} d {1} h": "{0} d {1} h",
+  "{0} h {1} min": "{0} h {1} min",
+  "ADI-2-Pi running for": "ADI-2-Pi läuft seit",
+  "Computer running for": "Computer läuft seit",
+  "Pi running for": "Pi läuft seit"
 }

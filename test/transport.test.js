@@ -33,20 +33,53 @@ test('finds the ADI-2 in /proc/asound/cards', () => {
   fs.rmSync(root, { recursive: true });
 });
 
-test('reads and writes through a non-blocking device node (FIFO stand-in)', async () => {
+for (const poll of [false, true]) {
+  test(`reads and writes through a device node (FIFO stand-in), input ${poll ? 'polled' : 'through cat'}`, async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'adi2-'));
+    const fifo = path.join(dir, 'midi');
+    execFileSync('mkfifo', [fifo]);
+    const hold = fs.openSync(fifo, fs.constants.O_RDWR);
+    const t = new AlsaMidiTransport({ device: fifo, poll, log: { info() {}, warn() {} } });
+    const got = [];
+    t.on('data', (d) => got.push(...d));
+    await new Promise((r) => { t.on('open', r); t.start(); });
+    assert.strictEqual(!!t.reader, !poll);
+    fs.writeSync(hold, Buffer.from([0xf0, 0x01, 0xf7]));
+    assert.ok(t.write(Buffer.from([0xf0, 0x02, 0xf7])));
+    const t0 = Date.now();
+    while (got.length < 6 && Date.now() - t0 < 1000) await new Promise((r) => setTimeout(r, 10));
+    assert.deepStrictEqual(got, [0xf0, 0x01, 0xf7, 0xf0, 0x02, 0xf7]);
+    // nothing to read: no reads at all through cat, every 10 ms when polling
+    const reads = [];
+    const orig = fs.read;
+    fs.read = (...a) => { reads.push(1); return orig(...a); };
+    await new Promise((r) => setTimeout(r, 200));
+    fs.read = orig;
+    if (poll) assert.ok(reads.length >= 10, 'polling reads');
+    else assert.strictEqual(reads.length, 0, 'no polling reads with cat');
+    t.stop();
+    assert.strictEqual(t.reader, null);
+    fs.closeSync(hold);
+    fs.rmSync(dir, { recursive: true });
+  });
+}
+
+test('the input reader ending closes the port (unplugged) and it is looked for again', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'adi2-'));
   const fifo = path.join(dir, 'midi');
   execFileSync('mkfifo', [fifo]);
   const hold = fs.openSync(fifo, fs.constants.O_RDWR);
   const t = new AlsaMidiTransport({ device: fifo, log: { info() {}, warn() {} } });
-  const got = [];
-  t.on('data', (d) => got.push(...d));
+  const closed = [];
+  t.on('close', (r) => closed.push(r));
   await new Promise((r) => { t.on('open', r); t.start(); });
-  fs.writeSync(hold, Buffer.from([0xf0, 0x01, 0xf7]));
-  assert.ok(t.write(Buffer.from([0xf0, 0x02, 0xf7])));
+  t.reader.stderr.emit('data', 'cat: /dev/snd/midiC2D0: No such device\n');
+  t.reader.kill();
   const t0 = Date.now();
-  while (got.length < 6 && Date.now() - t0 < 1000) await new Promise((r) => setTimeout(r, 10));
-  assert.deepStrictEqual(got, [0xf0, 0x01, 0xf7, 0xf0, 0x02, 0xf7]);
+  while (!closed.length && Date.now() - t0 < 1000) await new Promise((r) => setTimeout(r, 10));
+  assert.deepStrictEqual(closed, ['unplugged']);
+  assert.strictEqual(t.isOpen, false);
+  assert.ok(t.timer, 'scanning again');
   t.stop();
   fs.closeSync(hold);
   fs.rmSync(dir, { recursive: true });

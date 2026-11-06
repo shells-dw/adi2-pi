@@ -237,11 +237,16 @@ test('wiring: GPIO3 low while the ADI-2 answers over USB = trigger found; USB on
     dev.answering = true;
     await until(() => t.status().detected);
     assert.ok(g.calls.includes('gpioget gpiochip0 3'));
+    // while USB answers: GPIO not read every poll
+    const n = g.calls.filter((c) => c === 'gpioget gpiochip0 3').length;
+    await sleep(100);
+    assert.strictEqual(g.calls.filter((c) => c === 'gpioget gpiochip0 3').length, n, 'no gpioget for 10 s while USB answers');
 
     // on GPIO3, wire comes off while the ADI-2 stays on: no shutdown, noSignal after a while
     settings.update({ trigger: { enabled: true, source: 'gpio', delaySec: 10 } }); t.apply();
     await until(() => t.status().armed);
     g.level = 1;
+    t.levelAt = 0; // while USB answers the GPIO is read every 10 s: as if they had passed
     t.usbOnSince = Date.now() - 11000;
     await until(() => t.status().noSignal);
     assert.strictEqual(t.status().adiOn, true, 'USB says on');

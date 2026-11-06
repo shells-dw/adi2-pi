@@ -218,3 +218,45 @@ test('fixed sample rate: opens the idle ADI-2 once so it switches now', { skip: 
     spawnSync('pkill', ['-f', rt]);
   }
 });
+
+test('PipeWire changes come from one pw-dump --monitor, not a pw-dump every poll', { skip: !canRun && 'PipeWire tools missing' }, async () => {
+  const rt = fs.mkdtempSync(path.join(os.tmpdir(), 'adi2pi-mon-'));
+  const env = { ...process.env, XDG_RUNTIME_DIR: rt };
+  const fx = spawn(FIXTURE, [rt], { env, stdio: ['ignore', 'pipe', 'ignore'], detached: true });
+  await new Promise((r) => fx.stdout.on('data', (d) => { if (/ready/.test(String(d))) r(); }));
+  const settings = { bluetooth: { outSource: 'off' }, routing: { mode: 'newest', rate: 0 } };
+  const audio = new Audio({ log: quiet, getSettings: () => settings, env: { XDG_RUNTIME_DIR: rt }, pollMs: 100 });
+  const dumps = [];
+  const run = audio.run;
+  audio.run = (cmd, args) => { if (cmd === 'pw-dump') dumps.push(args); return run(cmd, args); };
+  try {
+    audio.start();
+    await until(() => audio.status().available && audio.monitor.ready);
+    const n = dumps.length;
+    await sleep(1000);
+    assert.ok(n <= 1, 'at most one pw-dump before the monitor is up');
+    assert.strictEqual(dumps.length, n, 'no pw-dump while the monitor runs (10 polls)');
+    // once a minute a full pw-dump replaces the monitor's copy
+    audio.fullAt = 0;
+    await until(() => dumps.length === n + 1);
+    await sleep(300);
+    assert.strictEqual(dumps.length, n + 1);
+    assert.ok(audio.status().available);
+    // a change made in PipeWire shows up through the monitor (no pw-dump runs)
+    settings.routing.rate = 96000;
+    audio.refresh();
+    await until(() => audio.status().forceRate === 96000);
+    settings.routing.rate = 0;
+    audio.refresh();
+    await until(() => !audio.status().forceRate);
+    assert.strictEqual(dumps.length, n + 1);
+    // the monitor ends: a one-shot pw-dump until it's back
+    audio.monitor.child.kill();
+    await until(() => dumps.length > n + 1);
+    await until(() => audio.monitor.ready, 5000);
+  } finally {
+    audio.stop();
+    try { process.kill(-fx.pid, 'SIGTERM'); } catch { /* gone */ }
+    spawnSync('pkill', ['-f', rt]);
+  }
+});

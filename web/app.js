@@ -218,7 +218,7 @@
       case 'hello':
         // another ADI-2-Pi version after a reconnect (an update was installed): load its page
         if (S.bridge && S.bridge.version && m.bridge && m.bridge.version && m.bridge.version !== S.bridge.version) { location.reload(); return; }
-        S.bridge = m.bridge;
+        S.bridge = { ...m.bridge, at: Date.now() }; // at: when the uptimes were read
         S.access = m.access || 'full';
         setDevice(m.device);
         $('#bridgeName').textContent = m.bridge.name;
@@ -2111,6 +2111,25 @@
     monitorEl.scrollTop = monitorEl.scrollHeight;
   }
 
+  /** How long ADI-2-Pi and the Pi (or computer) have been running; counted on from the hello message. */
+  function uptimeRows() {
+    if (typeof S.bridge.uptime !== 'number') return [];
+    const app = h('div', { class: 'ctl num' }), sys = h('div', { class: 'ctl num' });
+    const since = (sec) => new Date(Date.now() - sec * 1000).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
+    const show = () => {
+      const gone = (Date.now() - (S.bridge.at || Date.now())) / 1000;
+      const a = S.bridge.uptime + gone, s = S.bridge.systemUptime + gone;
+      app.textContent = upFor(a); app.title = tr('since {0}', [since(a)]);
+      sys.textContent = upFor(s); sys.title = tr('since {0}', [since(s)]);
+    };
+    show();
+    const timer = setInterval(() => { if (app.isConnected) show(); else clearInterval(timer); }, 30000);
+    return [
+      h('div', { class: 'row' }, h('div', { class: 'lab' }, tr('ADI-2-Pi running for')), app),
+      h('div', { class: 'row' }, h('div', { class: 'lab' }, isPi() ? tr('Pi running for') : tr('Computer running for')), sys),
+    ];
+  }
+
   function pageBridge() {
     const st = S.settings;
     // general: saved as you change it
@@ -2125,6 +2144,7 @@
       h('div', { class: 'row' }, h('div', { class: 'lab' }, tr('ADI-2')), h('div', { class: 'ctl' }, S.device.connected ? `${S.device.modelName || '…'}${S.device.id ? ` · ID 0x${S.device.id.toString(16)}` : ''}` : tr('not connected'))),
       h('div', { class: 'row' }, h('div', { class: 'lab' }, tr('Version')), h('div', { class: 'ctl num' }, S.bridge.version || '–', updateLink())),
       h('div', { class: 'row' }, h('div', { class: 'lab' }, tr('Host')), h('div', { class: 'ctl' }, `${S.bridge.host || location.hostname}.local`)),
+      ...uptimeRows(),
       h('div', { class: 'row' }, h('div', { class: 'lab' }, tr('API'), h('small', null, tr('for the Stream Deck plugin and apps'))), h('div', { class: 'ctl' }, h('code', null, api), copy)),
       h('p', { class: 'hint help' }, tr('Changes on this page are saved as you make them. Settings are read from the unit and only written to it when you change something.')));
     sec(general, { group: tr('General'), icon: 'general', summary: () => S.bridge.version || '' });
@@ -2543,6 +2563,11 @@
     if (onChange) { num.addEventListener('change', () => onChange(get())); unit.addEventListener('change', () => onChange(get())); }
     return Object.assign(h('span', { class: 'inline', style: { gap: '4px' } }, num, unit), { get });
   }
+  /** Running time: "2 d 5 h", "3 h 12 min", "8 min". */
+  const upFor = (sec) => {
+    const m = Math.floor(sec / 60), hh = Math.floor(m / 60), d = Math.floor(hh / 24);
+    return d ? tr('{0} d {1} h', [d, hh % 24]) : hh ? tr('{0} h {1} min', [hh, m % 60]) : m ? tr('{0} min', [m]) : tr('< 1 min');
+  };
   const hmmss = (ms) => { const t = Math.max(0, Math.ceil(ms / 1000)); const hh = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60; return `${hh ? `${hh}:${String(m).padStart(2, '0')}` : m}:${String(s).padStart(2, '0')}`; };
 
   function rulesCard() {

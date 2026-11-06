@@ -317,8 +317,9 @@ Behaviour:
 - With Auto Standby enabled on the ADI-2, the Pi shuts down with it.
 - GPIO3 is also I²C SCL; it is unavailable while I²C is enabled (UPS HAT or another HAT). The
   installer switches I²C on only with `--with-ups`.
-- GPIO is read with `gpioget` (libgpiod 1.x and 2.x); the shutdown uses `systemctl poweroff`,
-  permitted for `adi2pi` by `/etc/polkit-1/rules.d/50-adi2-pi.rules`.
+- GPIO is read with `gpioget` (libgpiod 1.x and 2.x) once a second, every 10 s while the ADI-2
+  answers over USB; the shutdown uses `systemctl poweroff`, permitted for `adi2pi` by
+  `/etc/polkit-1/rules.d/50-adi2-pi.rules`.
 
 ### UPS HAT
 
@@ -513,6 +514,9 @@ setups, the scenes and the sleep timer appear in Home Assistant by themselves (M
 Plain MQTT without TLS, for a server in the local network. Topics: [docs/API.md](docs/API.md#mqtt).
 
 ### MIDI port
+
+ADI-2-Pi opens the ADI-2's raw MIDI device node (`/dev/snd/midiC<card>D0`) directly; the input
+is read by `cat`, which waits in the kernel for bytes, so nothing polls while the unit is quiet.
 
 The PipeWire instance of a desktop session opens all ALSA MIDI ports, which blocks the ADI-2's
 port. The installer disables WirePlumber's ALSA MIDI monitor for desktop

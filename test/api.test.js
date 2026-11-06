@@ -92,10 +92,11 @@ test('WebSocket: greeting, sets by name/address, delta, clamping, broadcasts, er
     assert.deepStrictEqual(a.msgs.slice(0, 3).map((m) => m.t), ['hello', 'state', 'settings']);
     const hello = a.msgs[0];
     assert.strictEqual(hello.api, 1);
-    assert.deepStrictEqual(Object.keys(hello.bridge).sort(), ['auth', 'host', 'name', 'pi', 'shared', 'version', 'viewOpen']);
+    assert.deepStrictEqual(Object.keys(hello.bridge).sort(), ['auth', 'host', 'name', 'pi', 'shared', 'systemUptime', 'uptime', 'version', 'viewOpen']);
     for (const k of ['connected', 'ready', 'answering', 'id', 'model', 'modelName', 'port', 'card', 'problem']) assert.ok(k in hello.device, `device.${k}`);
     assert.strictEqual(typeof hello.bridge.pi, 'boolean');
     assert.strictEqual(hello.bridge.shared, false);
+    assert.ok(Number.isInteger(hello.bridge.uptime) && hello.bridge.systemUptime >= hello.bridge.uptime);
     const st = a.msgs[1];
     assert.ok(st.updates && st.updates.check === false, 'state.updates');
     for (const k of ['device', 'p', 'setups', 'eqPresets', 'unitStatus', 'statusInfo', 'silences', 'bluetooth', 'streaming', 'routing']) assert.ok(k in st, `state.${k}`);
