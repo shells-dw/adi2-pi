@@ -5,11 +5,40 @@
 ```sh
 git clone https://github.com/shells-dw/adi2-pi.git
 cd adi2-pi
+git checkout "$(git describe --tags --abbrev=0 origin/main)"   # the latest release
 sudo ./install.sh
 ```
 
-or unpack a [release](https://github.com/shells-dw/adi2-pi/releases) and run `sudo ./install.sh`
-in the folder. Running it again updates the installation and keeps the settings.
+Without the `git checkout` line it installs the current development state. Running the installer
+again updates the installation and keeps the settings.
+
+### From a release file
+
+Without git, or for a Pi without internet access: download `adi2-pi-<version>.tar.gz` (and
+`.tar.gz.sig`) from [Releases](https://github.com/shells-dw/adi2-pi/releases), copy it to the
+Pi (USB stick, `scp`), then:
+
+```sh
+tar -xzf adi2-pi-<version>.tar.gz
+cd adi2-pi
+sudo ./install.sh
+```
+
+Without internet access the installer uses the packages already installed and names the
+missing ones. Raspberry Pi OS has no Node.js and, depending on the image, not all audio
+packages, so a new Pi needs the package sources once. Later updates work offline: System →
+*ADI-2-Pi updates* → *Install from a file*, or the commands above.
+
+Checking the signature (optional) with the public key from the repository,
+[lib/release-key.pub](../lib/release-key.pub), not from the archive:
+
+```sh
+tail -n 1 adi2-pi-<version>.tar.gz.sig | base64 -d > sig.bin
+openssl pkeyutl -verify -pubin -inkey release-key.pub -rawin -in adi2-pi-<version>.tar.gz -sigfile sig.bin
+```
+
+`Signature Verified Successfully` = the archive is the signed release. Installations do this
+check themselves for every update; the first installation trusts where it came from.
 
 What it does:
 
@@ -63,6 +92,7 @@ Other distributions (Fedora, Arch …): remote control only, set up by hand.
 1. Node.js 18 or newer, then:
    ```sh
    git clone https://github.com/shells-dw/adi2-pi.git
+   git -C adi2-pi checkout "$(git -C adi2-pi describe --tags --abbrev=0 origin/main)"
    node adi2-pi/bin/adi2-pi.js --no-audio --shared --port 8080 --data ~/.local/share/adi2-pi
    ```
    The user needs to be in the `audio` group.

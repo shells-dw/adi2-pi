@@ -6,4 +6,3 @@
 *.pyc binary
 # for the README on GitHub only: not in release archives (git archive)
 docs/screenshots export-ignore
-tools/screenshots.js export-ignore

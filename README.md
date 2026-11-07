@@ -37,8 +37,11 @@ Pro SE / Pro EX). Runs on a Raspberry Pi connected to the unit by USB, or on ano
 ```sh
 git clone https://github.com/shells-dw/adi2-pi.git
 cd adi2-pi
+git checkout "$(git describe --tags --abbrev=0 origin/main)"   # the latest release
 sudo ./install.sh
 ```
+
+Without git: [from a release file](docs/install.md#from-a-release-file).
 
 Then open the address it prints, e.g. `http://raspberrypi.local`. Running it again updates and
 keeps the settings. Common options:

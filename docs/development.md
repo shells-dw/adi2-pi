@@ -11,9 +11,6 @@ Integration tests use a fake BlueZ on a private D-Bus (python3-dbus, dbus-daemon
 PipeWire/WirePlumber (pipewire, wireplumber, pipewire-pulse) and real receivers (gmediarender,
 snapserver/snapclient); they're skipped when those are missing.
 
-`node tools/screenshots.js` takes the README's screenshots from the simulated unit (needs
-Playwright with Chromium); they're not part of the release archives.
-
 ```
 bin/adi2-pi.js          entry point, command line options
 lib/protocol.js         SysEx encoding and decoding
@@ -45,7 +42,7 @@ clients/                reference API client
 audio/                  audio service start script, PipeWire/WirePlumber configuration
 systemd/                service units, mDNS service definition
 web/                    web interface; web/lang/ languages; web/eq/ Headphone EQ Generator
-tools/                  release.js (signed releases), i18n-keys.js (translatable texts), screenshots.js
+tools/                  release.js (signed releases), i18n-keys.js (translatable texts)
 ```
 
 ## Releases
