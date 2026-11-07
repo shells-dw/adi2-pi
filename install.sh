@@ -113,7 +113,7 @@ die()  { printf '\n%s✗ %s%s\n' "$R" "$*" "$N" >&2; exit 1; }
 # ---------------------------------------------------------------- system check
 . /etc/os-release 2>/dev/null || true
 command -v apt-get >/dev/null 2>&1 && command -v dpkg >/dev/null 2>&1 \
-  || die "this installer is for Raspberry Pi OS, Debian, Ubuntu and Linux Mint (apt). On ${PRETTY_NAME:-this system}, set ADI-2-Pi up by hand: see \"Other Linux systems\" in README.md"
+  || die "this installer is for Raspberry Pi OS, Debian, Ubuntu and Linux Mint (apt). On ${PRETTY_NAME:-this system}, set ADI-2-Pi up by hand: see \"Other Linux systems\" in docs/install.md"
 [ -d /run/systemd/system ] || die "this installer needs systemd as the init system"
 ARCH="$(dpkg --print-architecture 2>/dev/null || uname -m)"
 MODEL="$(tr -d '\0' </proc/device-tree/model 2>/dev/null || true)"

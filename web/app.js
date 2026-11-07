@@ -17,6 +17,8 @@
     for (const kid of kids.flat()) if (kid !== null && kid !== undefined && kid !== false) el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
     return el;
   }
+  // replaceChildren without null/undefined/false (the DOM would write them as text)
+  const fill = (el, ...kids) => el.replaceChildren(...kids.flat().filter((k) => k !== null && k !== undefined && k !== false));
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const fmt = (v, d = 1) => (v === undefined || v === null || Number.isNaN(v) ? '–' : Number(v).toFixed(d));
   const fmtHz = (f) => (f >= 1000 ? `${(f / 1000).toFixed(f >= 10000 ? 1 : 2).replace(/\.?0+$/, '')}k` : String(Math.round(f)));
@@ -1259,7 +1261,7 @@
         foot.push(h('a', { class: `sp-f${osu.state === 'idle' ? ' warn' : ''}`, href: '#', onclick: (e) => { e.preventDefault(); showSection('bridge', tr('System updates')); } }, icon('package', 13),
           osu.state === 'installing' ? tr('installing system updates') : osu.state === 'checking' ? tr('checking for system updates') : osu.count ? tr('{0} system updates', [osu.count]) : tr('restart needed')));
       }
-      panel.replaceChildren(head,
+      fill(panel, head,
         h('div', { class: 'sp-body' },
           h('div', { class: 'sp-col' }, h('span', { class: 'sp-cap' }, tr('Sources')), ...srcRows),
           h('div', { class: 'sp-col' }, h('span', { class: 'sp-cap sp-caprow' }, tr('Outputs'),
@@ -1282,7 +1284,7 @@
       if (!r || S.p.get(key(r.addr, r.idx)) === undefined) { el.replaceChildren(); return; }
       const vol = getDisp(c.key, 'vol');
       const ref = refDbu(c);
-      el.replaceChildren(h('span', null, valueName(c.key, 'ref')),
+      fill(el, h('span', null, valueName(c.key, 'ref')),
         ref !== null && vol !== undefined ? h('span', null, tr('{0} dBu at 0 dBFS', [(ref + vol).toFixed(1)])) : null);
     };
     for (const id of ['ref', 'vol']) { const r = resolve(c.key, id); if (r) sub(key(r.addr, r.idx), upd); }
@@ -2256,7 +2258,7 @@
         const save = (next) => autosave(el, { quickLevels: { ...(S.settings.quickLevels || {}), [c.key]: next } });
         const add = h('input', { type: 'number', min: -114.5, max: 6, step: 0.5, placeholder: tr('+ dB'), 'aria-label': tr('{0}: add a quick level', [chName(c)]), class: 'vt-add' });
         add.addEventListener('change', () => { const v = Number(add.value); if (add.value.trim() !== '' && Number.isFinite(v)) save([...list, v].sort((x, y) => x - y)); });
-        box.replaceChildren(...list.map((v, i) => h('button', { class: 'vt-chip', 'aria-label': tr('Remove {0}', [fmtDb(v)]), title: tr('Remove'), onclick: () => save(list.filter((_, j) => j !== i)) },
+        fill(box, ...list.map((v, i) => h('button', { class: 'vt-chip', 'aria-label': tr('Remove {0}', [fmtDb(v)]), title: tr('Remove'), onclick: () => save(list.filter((_, j) => j !== i)) },
           `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v)}`, h('span', { class: 'x', 'aria-hidden': 'true' }, '×'))), list.length < 4 ? add : null);
       };
       draw();
@@ -2330,7 +2332,7 @@
         state = h('div', { class: 'row' }, h('div', { class: 'lab' }, tr('Now')), h('div', { class: `ctl ${cls}`, style: { textAlign: 'right' } }, text,
           t.shutdownAt && !t.shuttingDown ? h('button', { class: 'btn', style: { marginLeft: '8px' }, onclick: () => act({ cancel: true }) }, tr('Cancel')) : null));
       }
-      body.replaceChildren(
+      fill(body, 
         h('div', { class: 'row' }, h('div', { class: 'lab' }, tr('Shut down with the ADI-2'), h('small', null, tr('when the ADI-2 is switched off or goes to standby'))), h('div', { class: 'ctl' }, sw)),
         h('div', { class: 'row' }, h('div', { class: 'lab' }, tr('Detect standby by')), h('div', { class: 'ctl' }, src)),
         t.detected && !(t.source === 'gpio' && (t.pin || 3) === 3)

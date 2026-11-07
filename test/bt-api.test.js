@@ -124,7 +124,7 @@ test('Routing API: sources, switch, mode, fixed rate, refusals', async () => {
     assert.strictEqual(v.available, true);
     assert.strictEqual(v.mode, 'newest');
     assert.strictEqual(v.rate, 0);
-    const air = v.sources.find((x) => x.receiver === 'airplay');
+    const air = v.sources.find((x) => x.receiver === 'spotify');
     assert.ok(air && air.active);
     // a phone starts streaming via Bluetooth, then switch back to AirPlay
     await bt.cmd('pairing', { seconds: 30 });
