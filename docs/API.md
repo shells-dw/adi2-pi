@@ -785,6 +785,10 @@ Native apps and the Stream Deck plugin send no `Origin` and are not affected; ne
 loaded from files (`Origin: null`, e.g. the Stream Deck property inspector). A browser-based app
 hosted elsewhere can be allowed with `--allow-origin https://example.org`.
 
+Without an access key this is no complete protection: a page can make its requests appear as
+`Origin: null`, or reach the Pi under a name of its own (DNS rebinding). With a key set, neither
+gets in.
+
 ## Writing a client
 
 `clients/adi2pi-client.js` is a client without dependencies that implements the steps below;

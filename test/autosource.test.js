@@ -13,6 +13,7 @@ function fakes({ line = 0, ph34 = 3 } = {}) {
   const dev = new EventEmitter();
   dev.model = 'pro';
   dev.profile = 'pro';
+  dev.ready = true;
   dev.state = new Map([[LINE, line], [PH34, ph34]]);
   dev.sent = [];
   dev.info = () => ({ connected: true, ready: true, answering: true });
@@ -80,4 +81,22 @@ test('after a restart, a source switched before is still put back', async () => 
   assert.deepStrictEqual(dev.sent, ['line=0']);
   assert.throws(() => settings.update({ routing: { held: { ph12: 1 } } }), /unknown output/);
   a.stop();
+});
+
+test('the unit reading out its settings after a reconnect does not count as a change by hand', () => {
+  const { dev, audio } = fakes({ line: 4, ph34: 4 });
+  const settings = new Settings(null, quiet);
+  settings.update({ routing: { held: { line: 1, ph34: 1 } } });
+  const a = new AutoSource({ dev, audio, settings, log: quiet, holdMs: 50 });
+  a.start();
+  audio.play(true);
+  dev.ready = false;                    // read-out under way (Basic Mode not known yet)
+  dev.emit('params', { [LINE]: 5 }, 'device');
+  assert.strictEqual(settings.get().routing.held.line, 1);
+  dev.ready = true;
+  dev.emit('params', { [LINE]: 1 }, 'device');   // now it is someone's choice
+  assert.strictEqual(settings.get().routing.held.line, null);
+  a.stop();
+  dev.emit('params', { [PH34]: 1 }, 'device');   // stopped: nothing listens
+  assert.strictEqual(settings.get().routing.held.ph34, 1);
 });

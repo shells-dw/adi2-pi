@@ -509,3 +509,72 @@ test('MQTT: connects, Home Assistant discovery, states, commands', async () => {
     assert.strictEqual(pub.hasPassword, true);
   } finally { m.stop(); a.stop(); dev.stop(); broker.server.close(); if (broker.sock) broker.sock.destroy(); }
 });
+
+test('linked volumes: a call that names several linked outputs sets each to its value', async () => {
+  const { dev, settings } = await unit();
+  try {
+    settings.update({ link: ['line', 'ph12'] });
+    dev.set([{ ch: 'line', id: 'vol', value: -20, ramp: false }]);
+    await sleep(30);
+    assert.strictEqual(disp(dev, 'line', 'vol'), -20);
+    settings.update({ link: [] });
+    dev.set([{ ch: 'ph12', id: 'vol', value: -50, ramp: false }]);
+    settings.update({ link: ['line', 'ph12'] });
+    // a scene or a backup: both named → both exactly as named
+    dev.set([{ ch: 'line', id: 'vol', value: -40 }, { ch: 'ph12', id: 'vol', value: -50 }], { origin: 'rule' });
+    assert.strictEqual(disp(dev, 'line', 'vol'), -40);
+    assert.strictEqual(disp(dev, 'ph12', 'vol'), -50);
+    // one named: the other follows by the same amount, within the volume range
+    dev.set([{ ch: 'line', id: 'vol', value: -30 }]);
+    assert.strictEqual(disp(dev, 'ph12', 'vol'), -40);
+    dev.set([{ ch: 'ph12', id: 'vol', value: -100 }]);
+    dev.set([{ ch: 'line', id: 'vol', value: -114.5 }]);
+    assert.strictEqual(disp(dev, 'ph12', 'vol'), -114.5);
+  } finally { dev.stop(); }
+});
+
+test('rise-speed limit: turning the volume down on the unit ends the rise', async () => {
+  const { dev, mock, settings } = await unit();
+  try {
+    settings.update({ riseDbPerSec: 20 });
+    dev.set([{ ch: 'line', id: 'vol', value: -60, ramp: false }]);
+    await sleep(50);
+    dev.askedAt = 0;   // no read of everything under way
+    dev.set([{ ch: 'line', id: 'vol', value: -20 }]);
+    await until(() => disp(dev, 'line', 'vol') > -55);
+    const r = cat.resolve('line', 'vol');
+    mock.frontPanel(r.addr, r.idx, -700);   // the knob on the unit
+    await sleep(600);
+    assert.strictEqual(disp(dev, 'line', 'vol'), -70);
+  } finally { dev.stop(); }
+});
+
+test('EQ presets: two stores right after each other don\'t mix', async () => {
+  const { dev } = await unit();
+  try {
+    const bands = (g) => ({ dual: false, L: { 4: g }, R: {} });   // band 1 gain, raw
+    await until(() => dev.presets().every((p) => p.empty !== null), 8000);
+    dev.storeEqPreset(6, bands(20), 'AAA');
+    dev.storeEqPreset(7, bands(-20), 'BBB');
+    await until(() => dev.presets()[5].name === 'AAA' && dev.presets()[6].name === 'BBB', 5000);
+    dev.requestEqPresets();
+    await sleep(1500);
+    assert.strictEqual(dev.presets()[5].name, 'AAA');
+    assert.strictEqual(dev.presets()[6].name, 'BBB');
+    assert.strictEqual(dev.presets()[5].L[4], 20);
+    assert.strictEqual(dev.presets()[6].L[4], -20);
+  } finally { dev.stop(); }
+});
+
+test('MQTT: a malformed packet from the server ends the connection, not the process', async () => {
+  assert.throws(() => mq.parse(Buffer.from([0x30, 0x80, 0x80, 0x80, 0x80, 0x80, 0x01])), /malformed/);
+  const srv = net.createServer((s) => { s.on('error', () => {}); s.once('data', () => s.write(Buffer.from([0x20, 2, 0, 0, 0x30, 0]))); });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const c = new mq.MqttClient({ host: '127.0.0.1', port: srv.address().port, clientId: 't' });
+  const errors = [];
+  c.on('error', (e) => errors.push(e.message));
+  c.start();
+  try {
+    await until(() => errors.some((e) => /malformed packet/.test(e)), 3000, 'malformed packet reported');
+  } finally { c.stop(); srv.close(); }
+});

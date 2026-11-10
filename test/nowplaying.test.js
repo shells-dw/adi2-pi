@@ -93,12 +93,35 @@ test('the metadata pipe is created and read', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'adi2np-'));
   const np = new NowPlaying({ dataDir: dir, log: quiet });
   np.start();
-  await until(() => np.fd !== null);
+  await until(() => np.sock !== null);
   assert.ok(fs.statSync(path.join(dir, PIPE_NAME)).isFIFO());
+  // nothing is read while the pipe is quiet
+  const reads = [];
+  const orig = fs.read;
+  fs.read = (...a) => { reads.push(1); return orig(...a); };
+  await sleep(400);
+  fs.read = orig;
+  assert.strictEqual(reads.length, 0, 'the pipe is not polled');
   // a writer like shairport-sync
   execFileSync('sh', ['-c', `printf '%s' "$1" > "$2"`, 'x', item('ssnc', 'mdst') + item('core', 'minm', 'All Blues') + item('ssnc', 'mden') + item('ssnc', 'pbeg'), path.join(dir, PIPE_NAME)]);
   await until(() => np.status().sources.airplay.title === 'All Blues');
   assert.strictEqual(np.status().sources.airplay.state, 'playing');
+  // the writer is gone: still reading (the bridge holds the pipe open itself)
+  await sleep(100);
+  assert.ok(np.sock, 'pipe stays open');
+  execFileSync('sh', ['-c', `printf '%s' "$1" > "$2"`, 'x', item('ssnc', 'pend'), path.join(dir, PIPE_NAME)]);
+  await until(() => np.status().sources.airplay.state === 'stopped');
   np.stop();
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('a receiver whose process is gone no longer counts as playing', () => {
+  const np = new NowPlaying({ log: quiet });
+  np.handleHook({ receiver: 'spotify', event: 'track_changed', name: 'So What', artists: 'Miles Davis' });
+  np.handleHook({ receiver: 'spotify', event: 'playing', positionMs: 0 });
+  assert.strictEqual(np.status().current, 'spotify');
+  np.reset('spotify');
+  assert.strictEqual(np.status().current, null);
+  assert.strictEqual(np.entries.spotify.title, null);
+  np.reset('upnp');   // a receiver without titles: nothing happens
 });

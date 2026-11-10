@@ -131,3 +131,11 @@ test('download from GitHub and automatic install', opts, async () => {
   assert.strictEqual(su.status().autoFailed, '9.0.0');
   assert.strictEqual(new SelfUpdate({ dataDir: dir, version: '1.0.0', log: quiet, key: publicKey, installed: true }).status().autoFailed, '9.0.0', 'kept across a restart');
 });
+
+test('a release older than the installed version is refused', opts, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'su-'));
+  const su = new SelfUpdate({ dataDir: dir, version: '99.0.0', log: quiet, key: publicKey, installed: true, run: async () => ({ code: 0, out: '' }), logFile: path.join(dir, 'l'), pollMs: 10 });
+  assert.throws(() => su.stage(archive, sigOf(archive)), /older than the installed 99\.0\.0/);
+  assert.strictEqual(su.status().staged, null);
+  assert.ok(!fs.existsSync(path.join(dir, 'update', 'release.tar.gz')));
+});

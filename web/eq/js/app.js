@@ -684,7 +684,7 @@ function renderTable() {
       el('td', {}, bandName(f.label)),
       el('td', { class: 'type' }, el('span', { class: 'long' }, TYPE_NAME[f.type]()), el('span', { class: 'short', title: TYPE_NAME[f.type]() }, TYPE_SHORT[f.type])),
       el('td', { class: 'num' }, num('f', slot.fMin, slot.fMax, 1, 0)),
-      el('td', { class: 'num' }, num('gain', Math.max(slot.gMin, -24), Math.min(slot.gMax + 6, 24), steps.g, 1)),
+      el('td', { class: 'num' }, num('gain', Math.max(slot.gMin, -24), Math.min(slot.gMax + 6, slot.gDev ?? 24), steps.g, 1)),
       el('td', { class: 'num' }, num('q', slot.qMin, slot.qMax, steps.q, steps.q < 0.1 ? 2 : 1)),
     );
     return row;

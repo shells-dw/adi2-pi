@@ -106,6 +106,7 @@ if (args.mock) {
       env: { ADI2PI_HOOK_URL: `http://${hookHost}:${port}/api/hook` },
       hook: HOOK_PROGRAM, hookVolume: (id) => !!(streamVolume && streamVolume.active(id)), metadataPipe: nowPlaying.pipePath,
     });
+    receivers.on('gone', (id) => nowPlaying.reset(id));   // stopped or crashed mid-track: no longer "playing"
   }
 }
 if (receivers) {

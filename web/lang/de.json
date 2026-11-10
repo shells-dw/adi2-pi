@@ -921,5 +921,10 @@
   "{0} of {1}": "{0} von {1}",
   "Raspberry Pi": "Raspberry Pi",
   "Computer": "Computer",
-  "CPU: busy share of all cores since the previous reading. Load: runnable tasks on average; above the number of cores means waiting. Power supply: the Pi’s firmware flags – under-voltage means the power supply is too weak, the Pi then slows down.": "CPU: Anteil beschäftigt über alle Kerne seit der letzten Messung. Auslastung: lauffähige Aufgaben im Mittel; über der Kernzahl heißt warten. Stromversorgung: die Firmware-Flags des Pi – Unterspannung heißt, das Netzteil ist zu schwach, der Pi bremst dann."
+  "CPU: busy share of all cores since the previous reading. Load: runnable tasks on average; above the number of cores means waiting. Power supply: the Pi’s firmware flags – under-voltage means the power supply is too weak, the Pi then slows down.": "CPU: Anteil beschäftigt über alle Kerne seit der letzten Messung. Auslastung: lauffähige Aufgaben im Mittel; über der Kernzahl heißt warten. Stromversorgung: die Firmware-Flags des Pi – Unterspannung heißt, das Netzteil ist zu schwach, der Pi bremst dann.",
+  "strong": "stark",
+  "good": "gut",
+  "weak": "schwach",
+  "until": "bis",
+  "error": "Fehler"
 }

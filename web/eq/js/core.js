@@ -12,13 +12,14 @@ export function makeGrid() {
 
 // Parsing
 
-// Comma, semicolon, tab or space separated; non-numeric lines skipped.
+// Comma, semicolon, tab or space separated; non-numeric lines skipped. With semicolons or tabs
+// between the columns, a comma is the decimal sign ("20,5;70,3").
 export function parseResponse(text) {
   const f = [], v = [];
   for (const line of text.split(/\r?\n/)) {
     const s = line.trim();
     if (!s || /^[*#;/]/.test(s)) continue;
-    const cols = s.split(/[\s,;]+/).filter(Boolean);
+    const cols = (/[;\t]/.test(s) ? s.split(/[;\t]+/).map((c) => c.trim().replace(',', '.')) : s.split(/[\s,]+/)).filter(Boolean);
     if (cols.length < 2) continue;
     const a = Number(cols[0]), b = Number(cols[1]);
     if (!Number.isFinite(a) || !Number.isFinite(b) || a <= 0) continue;
@@ -131,7 +132,7 @@ export function buildSlots(opt) {
   if (opt.device === 'adi2') {
     const g = 12;
     const q = (lo, hi) => ({ qMin: lo, qMax: hi, qStep: 0.1 });
-    const base = { gMin: -g, gMax: g, gStep: 0.5, fStep: adiFreqStep };
+    const base = { gMin: -g, gMax: g, gDev: g, gStep: 0.5, fStep: adiFreqStep };   // gDev: the unit's own range
     slots.push({ id: 'B1', label: 'Band 1', type: opt.band1Type, fMin: 20, fMax: 20000, ...q(0.5, 9.9), ...base });
     slots.push({ id: 'B2', label: 'Band 2', type: 'peak', fMin: 20, fMax: 20000, ...q(0.5, 9.9), ...base });
     slots.push({ id: 'B3', label: 'Band 3', type: 'peak', fMin: 20, fMax: 20000, ...q(0.5, 9.9), ...base });
@@ -144,7 +145,7 @@ export function buildSlots(opt) {
     }
   } else {
     // TotalMix Room EQ: band 1 low shelf, bands 2–8 peak, band 9 high shelf.
-    const base = { fMin: 20, fMax: 20000, fStep: () => 1, gMin: -20, gMax: 20, gStep: 0.1, qMin: 0.4, qMax: 9.9, qStep: 0.1 };
+    const base = { fMin: 20, fMax: 20000, fStep: () => 1, gMin: -20, gMax: 20, gDev: 20, gStep: 0.1, qMin: 0.4, qMax: 9.9, qStep: 0.1 };
     for (let i = 1; i <= 9; i++) {
       const type = i === 1 ? 'lowshelf' : i === 9 ? 'highshelf' : 'peak';
       slots.push({ id: 'R' + i, label: 'Band ' + i, type, ...base });
@@ -156,8 +157,10 @@ export function buildSlots(opt) {
     if (s.type === 'highshelf' && s.fMin < 3000) s.fMin = s.id === 'BT' ? s.fMin : 5000;
   }
   for (const s of slots) {
-    s.gMin = Math.max(s.gMin, -opt.maxCut);
-    s.gMax = Math.min(s.gMax, opt.maxBoost);
+    // on the unit's gain grid, inside the limits asked for (a limit of 4.3 dB: 4.0)
+    const grid = (v, round) => (Number.isFinite(v) ? round(v / s.gStep + (round === Math.floor ? 1e-9 : -1e-9)) * s.gStep : v);
+    s.gMin = Math.max(s.gMin, grid(-opt.maxCut, Math.ceil));
+    s.gMax = Math.min(s.gMax, grid(opt.maxBoost, Math.floor));
   }
   return slots;
 }

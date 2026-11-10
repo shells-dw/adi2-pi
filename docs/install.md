@@ -123,6 +123,7 @@ are installed.
 - *Install updates automatically* (off by default): a newer release is installed once nothing
   plays on the Pi (checked again every 30 min). A version that failed is left to the user.
 - *Install from a file*: choose the `.tar.gz` and its `.sig` together; the Pi doesn't go online.
+- A release older than the installed version is refused; going back is done by hand (next line).
 - By hand: unpack on the Pi, `sudo ./install.sh --same-options`.
 
 A root service (`adi2-pi-self-update.service`) checks the signature again and runs the release's

@@ -64,6 +64,7 @@ AUTO_UPD=""   # on | off | empty: leave as it is
 ROLE=""       # dedicated | shared | empty: a Pi, or asked below
 OFFLINE=0
 OPTS_FILE=/etc/adi2-pi/install-options
+GIVEN=" $* "   # the options of this command line (without the saved ones)
 # --same-options: the saved options first, so options given now win
 for a in "$@"; do
   if [ "$a" = --same-options ] && [ -f "$OPTS_FILE" ]; then
@@ -93,7 +94,7 @@ while [ $# -gt 0 ]; do
     -y|--yes) ASSUME_YES=1; shift ;;
     --dedicated) ROLE=dedicated; shift ;;
     --shared) ROLE=shared; shift ;;
-    -h|--help) sed -n '2,44p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,42p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -162,16 +163,19 @@ if [ -z "$ROLE" ] && [ "$IS_PI" -eq 0 ]; then
   fi
 fi
 SHARED=0; [ "$ROLE" = shared ] && { SHARED=1; AUDIO=0; STREAMING=0; }
+# a receiver option that only comes from the saved options doesn't stop the installer
+with_given() { case "$GIVEN" in *" --with-airplay2 "*|*" --rebuild-airplay2 "*|*" --with-spotify "*|*" --with-roon "*) return 0 ;; esac; return 1; }
 if [ "$STREAMING" -eq 0 ] && [ $((WITH_AP2 + WITH_SPOTIFY + WITH_ROON)) -gt 0 ]; then
-  die "--with-airplay2 / --with-spotify / --with-roon need the streaming receivers – leave out --no-streaming / --no-bluetooth / --shared"
+  with_given && die "--with-airplay2 / --with-spotify / --with-roon need the streaming receivers – leave out --no-streaming / --no-bluetooth / --shared"
+  WITH_AP2=0; WITH_SPOTIFY=0; WITH_ROON=0
 fi
 
 # PulseAudio installed? Then no streaming receivers (they need PipeWire's PulseAudio server)
 PA_KEPT=0
 if [ "$AUDIO" -eq 1 ] && [ "$STREAMING" -eq 1 ] && dpkg-query -W -f='${Status}' pulseaudio 2>/dev/null | grep -q 'install ok installed'; then
   # (dpkg -s also succeeds for removed packages that left config files: ask for "installed")
-  [ $((WITH_AP2 + WITH_SPOTIFY + WITH_ROON)) -eq 0 ] || die "PulseAudio is installed – the streaming receivers need PipeWire's PulseAudio server instead. Remove pulseaudio first, or install without --with-airplay2 / --with-spotify / --with-roon."
-  STREAMING=0; PA_KEPT=1
+  [ $((WITH_AP2 + WITH_SPOTIFY + WITH_ROON)) -eq 0 ] || ! with_given || die "PulseAudio is installed – the streaming receivers need PipeWire's PulseAudio server instead. Remove pulseaudio first, or install without --with-airplay2 / --with-spotify / --with-roon."
+  STREAMING=0; PA_KEPT=1; WITH_AP2=0; WITH_SPOTIFY=0; WITH_ROON=0
 fi
 
 # ---------------------------------------------------------------- web page port (asked first)
@@ -399,14 +403,19 @@ if [ "$AUDIO" -eq 1 ]; then
   usermod -a -G bluetooth "$SVC_USER"   # BlueZ's D-Bus policy lets this group control Bluetooth
 fi
 
-install -d -m 0755 "$DEST"
-rm -rf "${DEST:?}/bin" "${DEST:?}/lib" "${DEST:?}/web" "${DEST:?}/audio"
-cp -r "$SRC/bin" "$SRC/lib" "$SRC/web" "$SRC/audio" "$DEST/"
-cp "$SRC/package.json" "$SRC/README.md" "$DEST/"
-[ -d "$SRC/docs" ] && cp -r "$SRC/docs" "$DEST/"
-cp "$SRC/uninstall.sh" "$DEST/"
-chmod 0755 "$DEST/bin/adi2-pi.js" "$DEST/bin/adi2-pi-hook.js" "$DEST/uninstall.sh" "$DEST/audio/run-audio.sh" "$DEST/lib/bt-helper.py" "$DEST/lib/os-upgrade.sh" "$DEST/lib/self-update.sh"
-chown -R root:root "$DEST"
+# the complete new program next to the installed one, then swapped in: a failed copy (full
+# card) leaves the installed version as it was
+NEW="$DEST.new"
+rm -rf "$NEW" "$DEST.old"
+install -d -m 0755 "$NEW"
+cp -r "$SRC/bin" "$SRC/lib" "$SRC/web" "$SRC/audio" "$NEW/"
+cp "$SRC/package.json" "$SRC/README.md" "$SRC/uninstall.sh" "$NEW/"
+if [ -d "$SRC/docs" ]; then cp -r "$SRC/docs" "$NEW/"; fi
+chmod 0755 "$NEW/bin/adi2-pi.js" "$NEW/bin/adi2-pi-hook.js" "$NEW/uninstall.sh" "$NEW/audio/run-audio.sh" "$NEW/lib/bt-helper.py" "$NEW/lib/os-upgrade.sh" "$NEW/lib/self-update.sh"
+chown -R root:root "$NEW"
+if [ -d "$DEST" ]; then mv "$DEST" "$DEST.old"; fi
+mv "$NEW" "$DEST"
+rm -rf "$DEST.old"
 # System → System updates: two root services ADI-2-Pi may start (polkit rule above); their output in /var/log/adi2-pi
 install -d -m 0755 /var/log/adi2-pi
 if [ "$SHARED" -eq 1 ]; then
@@ -421,34 +430,29 @@ install -m 0644 "$SRC/systemd/adi2-pi-self-update.service" /etc/systemd/system/a
 # ---------------------------------------------------------------- settings (port)
 install -d -m 0750 -o "$SVC_USER" -g "$SVC_USER" "$DATA"
 
-node -e '
-  const fs = require("fs"); const f = process.argv[1]; const port = Number(process.argv[2]);
+# $DATA belongs to the service user: everything in it is read and written as that user, never
+# as root (a link planted there must not make root write or run something elsewhere)
+as_svc() { runuser -u "$SVC_USER" -- "$@"; }
+SET_JS='
+  const fs = require("fs"); const f = process.argv[1]; const set = JSON.parse(process.argv[2]);
   let s = {}; try { s = JSON.parse(fs.readFileSync(f, "utf8")); } catch {}
-  if (s.port !== port) { s.port = port; fs.writeFileSync(f + ".tmp", JSON.stringify(s, null, 2) + "\n"); fs.renameSync(f + ".tmp", f); }
-' "$DATA/settings.json" "$PORT"
+  if (set.port !== undefined) s.port = set.port;
+  if (set.osUpdates) s.osUpdates = { ...(s.osUpdates || {}), mode: set.osUpdates };
+  if (set.noTrigger) s.trigger = { ...(s.trigger || {}), enabled: false };
+  try { fs.unlinkSync(f + ".tmp"); } catch {}
+  fs.writeFileSync(f + ".tmp", JSON.stringify(s, null, 2) + "\n", { mode: 0o600, flag: "wx" });
+  fs.renameSync(f + ".tmp", f);
+  fs.chmodSync(f, 0o600);   // holds the access key hash and the MQTT password
+'
 # --shared: no system updates, no shutdown with the ADI-2
 [ "$SHARED" -eq 1 ] && [ "$AUTO_UPD" = on ] && warn "--auto-updates is ignored with --shared (the computer's own update tool installs system updates)"
 [ "$SHARED" -eq 1 ] && AUTO_UPD=""
-if [ "$SHARED" -eq 1 ]; then
-  node -e '
-    const fs = require("fs"); const f = process.argv[1];
-    let s = {}; try { s = JSON.parse(fs.readFileSync(f, "utf8")); } catch {}
-    s.osUpdates = { ...(s.osUpdates || {}), mode: "off" };
-    s.trigger = { ...(s.trigger || {}), enabled: false };
-    fs.writeFileSync(f + ".tmp", JSON.stringify(s, null, 2) + "\n"); fs.renameSync(f + ".tmp", f);
-  ' "$DATA/settings.json"
-fi
+SET="{\"port\":$PORT"
+[ "$SHARED" -eq 1 ] && SET="$SET,\"osUpdates\":\"off\",\"noTrigger\":true"
 # --auto-updates / --no-auto-updates: System updates → Install automatically / Off
-if [ -n "$AUTO_UPD" ]; then
-  node -e '
-    const fs = require("fs"); const f = process.argv[1];
-    let s = {}; try { s = JSON.parse(fs.readFileSync(f, "utf8")); } catch {}
-    s.osUpdates = { ...(s.osUpdates || {}), mode: process.argv[2] === "on" ? "install" : "off" };
-    fs.writeFileSync(f + ".tmp", JSON.stringify(s, null, 2) + "\n"); fs.renameSync(f + ".tmp", f);
-  ' "$DATA/settings.json" "$AUTO_UPD"
-fi
-chown "$SVC_USER:$SVC_USER" "$DATA/settings.json"
-chmod 0600 "$DATA/settings.json"   # holds the access key hash and the MQTT password
+[ "$AUTO_UPD" = on ] && SET="$SET,\"osUpdates\":\"install\""
+[ "$AUTO_UPD" = off ] && SET="$SET,\"osUpdates\":\"off\""
+as_svc node -e "$SET_JS" "$DATA/settings.json" "$SET}" || die "could not write $DATA/settings.json"
 ok "version $(node -p "require('$DEST/package.json').version"), settings in $DATA, web page on port $PORT"
 [ "$AUTO_UPD" = on ] && say "system updates: installed automatically 5 minutes after each start of $THIS, then every 24 hours"
 [ "$AUTO_UPD" = off ] && say "system updates: only when asked for on the System tab"
@@ -653,15 +657,13 @@ if [ "$STREAMING" -eq 1 ]; then
       install -d /var/cache/adi2-pi
       RURL="download.roonlabs.com/builds/roonbridge-installer-$RARCH.sh"
       curl -fsSL -o "/var/cache/adi2-pi/roonbridge-installer-$RARCH.sh" "https://$RURL" \
-        || curl -fsSL -o "/var/cache/adi2-pi/roonbridge-installer-$RARCH.sh" "http://$RURL" \
         || die "could not download Roon's installer from $RURL"
       chmod +x "/var/cache/adi2-pi/roonbridge-installer-$RARCH.sh"
       # Roon's installer asks to confirm
       printf 'y\ny\n' | "/var/cache/adi2-pi/roonbridge-installer-$RARCH.sh" >/dev/null || die "Roon's installer failed"
     fi
     # Roon's "System Output" = ALSA default for Roon: point it at ADI-2-Pi's audio service
-    install -d -m 0755 "$DATA/roon-home"
-    cat > "$DATA/roon-home/.asoundrc" <<'EOF2'
+    as_svc sh -c 'mkdir -p "$1" && chmod 0755 "$1" && rm -f "$1/.asoundrc" && cat > "$1/.asoundrc"' sh "$DATA/roon-home" <<'EOF2'
 # written by ADI-2-Pi: Roon Bridge's "System Output" plays through ADI-2-Pi's audio service
 pcm.!default { type pulse server "unix:/run/adi2-pi-audio/pulse/native" }
 ctl.!default { type pulse server "unix:/run/adi2-pi-audio/pulse/native" }
@@ -691,7 +693,7 @@ gpio3_low() {
 }
 TRIGGER_GPIO3=0; TRIGGER_WIRED=0
 [ "$IS_PI" -eq 1 ] || UPS_MODE=off   # GPIO and I²C HATs: Raspberry Pi only
-if [ "$IS_PI" -eq 1 ] && [ -f "$DATA/settings.json" ] && node -e "const t=require('$DATA/settings.json').trigger||{};process.exit(t.enabled&&t.source==='gpio'&&(t.pin||3)===3?0:1)" 2>/dev/null; then TRIGGER_GPIO3=1; fi
+if [ "$IS_PI" -eq 1 ] && as_svc node -e 'const t=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).trigger||{};process.exit(t.enabled&&t.source==="gpio"&&(t.pin||3)===3?0:1)' "$DATA/settings.json" 2>/dev/null; then TRIGGER_GPIO3=1; fi
 if [ "$IS_PI" -eq 1 ] && [ ! -e /dev/i2c-1 ] && gpio3_low; then TRIGGER_WIRED=1; fi
 ups_probe() {   # prints the model found on I²C bus 1, or nothing
   if [ "$(i2cget -y 1 0x2d 0x00 b 2>/dev/null)" = "0x0a" ]; then echo "Waveshare UPS HAT (E)"; return; fi
@@ -765,8 +767,8 @@ install -d -m 0755 "$(dirname "$OPTS_FILE")"
   [ -n "$ROLE" ] && echo "--$ROLE"
   opt $(( AUDIO == 0 && SHARED == 0 ? 1 : 0 )) --no-bluetooth
   opt $(( AUDIO == 1 && STREAMING == 0 && PA_KEPT == 0 ? 1 : 0 )) --no-streaming
-  opt $(( WITH_SPOTIFY == 1 || $([ -f /etc/apt/sources.list.d/raspotify.list ] && echo 1 || echo 0) == 1 ? 1 : 0 )) --with-spotify
-  opt $(( WITH_ROON == 1 || $([ -d /opt/RoonBridge ] && echo 1 || echo 0) == 1 ? 1 : 0 )) --with-roon
+  opt $(( STREAMING == 1 && (WITH_SPOTIFY == 1 || $([ -f /etc/apt/sources.list.d/raspotify.list ] && echo 1 || echo 0) == 1) ? 1 : 0 )) --with-spotify
+  opt $(( STREAMING == 1 && (WITH_ROON == 1 || $([ -d /opt/RoonBridge ] && echo 1 || echo 0) == 1) ? 1 : 0 )) --with-roon
   opt $(( JOURNAL_RAM == 1 || $([ -f /etc/systemd/journald.conf.d/50-adi2-pi-volatile.conf ] && echo 1 || echo 0) == 1 ? 1 : 0 )) --journal-ram
   opt "$KEEP_PW_MIDI" --keep-pipewire-midi
   opt "$SYSTEM_NODE" --system-node

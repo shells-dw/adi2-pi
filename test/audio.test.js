@@ -150,6 +150,36 @@ test('a volume PipeWire does not keep is set once, not on every read', async () 
   audio.stop();
 });
 
+test('a correction is made again when the same fault comes back; a failed command is tried again', async () => {
+  const st = { mute: false, fail: false };
+  const node = (id, cls) => ({ id, type: 'PipeWire:Interface:Node', info: { state: 'suspended', props: { 'node.name': `alsa_${cls === 'Audio/Sink' ? 'output' : 'input'}.usb-RME_ADI-2_Pro-00.analog-stereo`, 'media.class': cls, 'api.alsa.card.name': 'ADI-2 Pro (12345)' }, params: { Props: [{ channelVolumes: [1, 1], mute: cls === 'Audio/Sink' && st.mute }] } } });
+  const dump = () => JSON.stringify([
+    node(40, 'Audio/Sink'), node(50, 'Audio/Source'),
+    { id: 30, type: 'PipeWire:Interface:Metadata', props: { 'metadata.name': 'default' }, metadata: [{ subject: 0, key: 'default.audio.sink', value: { name: 'alsa_output.usb-RME_ADI-2_Pro-00.analog-stereo' } }, { subject: 0, key: 'default.configured.audio.sink', value: { name: 'alsa_output.usb-RME_ADI-2_Pro-00.analog-stereo' } }] },
+    { id: 31, type: 'PipeWire:Interface:Metadata', props: { 'metadata.name': 'settings' }, metadata: [] },
+  ]);
+  const unmutes = [];
+  const settings = { bluetooth: { outSource: 'off', gainDb: 0 }, routing: { mode: 'newest', rate: 0 } };
+  const audio = new Audio({ log: quiet, getSettings: () => settings, pollMs: 20, run: async (cmd, args) => {
+    if (cmd === 'pw-dump') return { ok: true, stdout: dump(), stderr: '' };
+    if (cmd === 'wpctl' && args[0] === 'set-mute') { unmutes.push(st.fail ? 'failed' : 'ok'); if (st.fail) return { ok: false, stdout: '', stderr: '' }; st.mute = false; }
+    return { ok: true, stdout: '', stderr: '' };
+  } });
+  audio.start();
+  try {
+    st.mute = true;
+    await until(() => unmutes.length === 1);
+    await sleep(100);
+    st.mute = true;   // muted again from outside
+    await until(() => unmutes.length === 2);
+    st.fail = true; st.mute = true;
+    await until(() => unmutes.length >= 4);   // wpctl fails: tried on the next reads
+    st.fail = false;
+    await until(() => !st.mute);
+    assert.deepStrictEqual(unmutes.slice(0, 2), ['ok', 'ok']);
+  } finally { audio.stop(); }
+});
+
 test('newest source wins, switch back, mix, fixed sample rate', { skip: !canRun && 'PipeWire tools missing' }, async () => {
   const rt = fs.mkdtempSync(path.join(os.tmpdir(), 'adi2pi-route-'));
   const env = { ...process.env, XDG_RUNTIME_DIR: rt };
@@ -261,12 +291,21 @@ test('PipeWire changes come from one pw-dump --monitor, not a pw-dump every poll
     await sleep(1000);
     assert.ok(n <= 1, 'at most one pw-dump before the monitor is up');
     assert.strictEqual(dumps.length, n, 'no pw-dump while the monitor runs (10 polls)');
-    // once a minute a full pw-dump replaces the monitor's copy
-    audio.fullAt = 0;
-    await until(() => dumps.length === n + 1);
+    // once a minute the monitor starts again and its full dump replaces the copy; a metadata
+    // entry removed in PipeWire (not printed as a change) is gone then. No pw-dump, no gap.
+    spawnSync('pw-metadata', ['-n', 'settings', '0', 'test.key', '1'], { env });
+    await until(() => JSON.stringify(audio.monitor.list()).includes('test.key'));
+    spawnSync('pw-metadata', ['-n', 'settings', '-d', '0', 'test.key'], { env });
+    const gaps = [];
+    audio.on('status', (s) => { if (!s.available) gaps.push(s); });
+    const child = audio.monitor.child;
+    audio.fullAt = 1;
+    await until(() => audio.monitor.child && audio.monitor.child !== child && !audio.monitor.first);
+    assert.ok(!JSON.stringify(audio.monitor.list()).includes('test.key'), 'the removed entry is gone');
     await sleep(300);
-    assert.strictEqual(dumps.length, n + 1);
+    assert.strictEqual(dumps.length, n);
     assert.ok(audio.status().available);
+    assert.strictEqual(gaps.length, 0);
     // a change made in PipeWire shows up through the monitor (no pw-dump runs)
     settings.routing.rate = 96000;
     audio.refresh();
@@ -274,10 +313,10 @@ test('PipeWire changes come from one pw-dump --monitor, not a pw-dump every poll
     settings.routing.rate = 0;
     audio.refresh();
     await until(() => !audio.status().forceRate);
-    assert.strictEqual(dumps.length, n + 1);
+    assert.strictEqual(dumps.length, n);
     // the monitor ends: a one-shot pw-dump until it's back
     audio.monitor.child.kill();
-    await until(() => dumps.length > n + 1);
+    await until(() => dumps.length > n);
     await until(() => audio.monitor.ready, 5000);
   } finally {
     audio.stop();

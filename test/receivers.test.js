@@ -152,3 +152,13 @@ test('a receiver that crashes is restarted, with the reason in its status', asyn
     assert.strictEqual(rx2.status().receivers[0].installed, false);
   } finally { rx.stop(); }
 });
+
+test('Roon Bridge running: systemd\'s entry is a link to the invocation id, not to a file', () => {
+  const { roonRunning } = require('../lib/receivers');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'adi2pi-units-'));
+  assert.strictEqual(roonRunning(dir), false);
+  fs.symlinkSync('0123456789abcdef0123456789abcdef', path.join(dir, 'invocation:roonbridge.service'));
+  assert.strictEqual(fs.existsSync(path.join(dir, 'invocation:roonbridge.service')), false);
+  assert.strictEqual(roonRunning(dir), true);
+  fs.rmSync(dir, { recursive: true });
+});

@@ -221,6 +221,10 @@ class Helper:
             entry.pop(str(i), None)
         if not entry:
             self.objects.pop(str(path), None)
+        if ADAPTER in ifaces and self.available and not self.adapter_path():
+            # the adapter is gone (USB adapter unplugged): set it up again when one comes back
+            self.available = False
+            self.reason = "no Bluetooth adapter found (is Bluetooth switched off in the Pi's config or blocked by rfkill?)"
         self.emit()
 
     def _props_changed(self, iface, changed, invalidated, path=None):
@@ -374,7 +378,16 @@ class Helper:
     def _pairing_over(self):
         self.pair_timer = None
         self.pair_until = 0
-        self._visible(False)
+        if self.outgoing:
+            # we are pairing something ourselves: Pairable stays on until that is done (cmd_pair)
+            a = self.adapter_path()
+            if a:
+                try:
+                    self._set(a, ADAPTER, "Discoverable", dbus.Boolean(False))
+                except dbus.exceptions.DBusException as e:
+                    log("Discoverable: %s" % e.get_dbus_message())
+        else:
+            self._visible(False)
         self.emit()
         return False
 

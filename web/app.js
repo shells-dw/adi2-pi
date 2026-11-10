@@ -19,6 +19,12 @@
   }
   // replaceChildren without null/undefined/false (the DOM would write them as text)
   const fill = (el, ...kids) => el.replaceChildren(...kids.flat().filter((k) => k !== null && k !== undefined && k !== false));
+  /** A countdown's redraw waits while a field of the card is in use (it would be replaced under the cursor). */
+  const inUse = (el) => { const a = document.activeElement; return !!a && el.contains(a) && /^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName); };
+  const retick = (el, draw, keep, ms = 1000) => {
+    const again = () => { if (!el.isConnected) return; if (inUse(el)) return keep(setTimeout(again, ms)); draw(); };
+    return setTimeout(again, ms);
+  };
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const fmt = (v, d = 1) => (v === undefined || v === null || Number.isNaN(v) ? '–' : Number(v).toFixed(d));
   const fmtHz = (f) => (f >= 1000 ? `${(f / 1000).toFixed(f >= 10000 ? 1 : 2).replace(/\.?0+$/, '')}k` : String(Math.round(f)));
@@ -230,7 +236,8 @@
         S.access = m.access;
         renderConn();
         break;
-      case 'state':
+      case 'state': {
+        const first = !S.p.size;   // the page was built on 'hello', before any value was known
         S.p = new Map([...Object.entries(m.p), ...[...S.p].filter(([k]) => /^d[LRX]\./.test(k))]);
         S.setups = m.setups;
         S.presets = m.eqPresets || [];
@@ -258,7 +265,10 @@
         notifyAll();
         for (const fn of presetSubs) fn();
         renderSetupSelect();
+        if (first) { renderTabs(); render(); }
+        for (const fn of statusSubs) fn();
         break;
+      }
       case 'p': {
         const now = performance.now();
         for (const [k, v] of Object.entries(m.p)) {
@@ -786,9 +796,10 @@
     // step buttons with auto-repeat
     for (const b of node.querySelectorAll('.step')) {
       let t1, t2;
-      const step = () => { if (cur() !== undefined) set(cur() + Number(b.dataset.step) * 0.5); };
       const stop = () => { clearTimeout(t1); clearInterval(t2); };
-      b.addEventListener('pointerdown', () => { step(); t1 = setTimeout(() => { t2 = setInterval(step, 70); }, 380); });
+      // the page was rebuilt while the button is held (unit gone, other model): no release reaches it
+      const step = () => { if (!b.isConnected) return stop(); if (cur() !== undefined) set(cur() + Number(b.dataset.step) * 0.5); };
+      b.addEventListener('pointerdown', (e) => { stop(); try { b.setPointerCapture(e.pointerId); } catch { /* not a pointer that can be captured */ } step(); t1 = setTimeout(() => { t2 = setInterval(step, 70); }, 380); });
       for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) b.addEventListener(ev, stop);
     }
     return node;
@@ -1081,7 +1092,7 @@
       h('h2', null, title, h('span', { class: 'right hint eq-tip', style: { margin: 0 }, text: tr('drag points · wheel = Q · double-click = 0 dB') })),
       h('div', { class: 'eq-head' }, enRow, h('div', { class: 'rightside' }, dualCtl, sideSeg), presetEl),
       wrap, bandsEl,
-      c.kind === 'output' && !c.draft ? h('p', { class: 'hint' }, h('a', { href: '/#eqpresets' }, tr('EQ presets')), ' · ', h('a', { href: '/eq/' }, tr('Find an EQ for your headphones ›'))) : null,
+      c.kind === 'output' && !c.draft ? h('p', { class: 'hint' }, h('a', { href: '/#eqpresets', onclick: (e) => { e.preventDefault(); go('eqpresets'); } }, tr('EQ presets')), ' · ', h('a', { href: '/eq/' }, tr('Find an EQ for your headphones ›'))) : null,
       h('h3', { style: { marginTop: '16px' } }, tr('Bass / Treble')), btEl);
   }
 
@@ -1356,7 +1367,7 @@
       const ref = snaps.length ? snaps[snaps.length - 1].info : null;
       const byte = (x, i) => { const b = x.hex.split(' ')[i]; return b === undefined ? undefined : parseInt(b, 16); };
       const byteRow = (i, labels) => (byte(s, i) === undefined ? null : bitsRow(`Byte ${i + 6}`, byte(s, i), 7, ref ? byte(ref, i) : undefined, labels));
-      grid.replaceChildren(
+      fill(grid,
         byteRow(0, B6),
         bitsRow('IOStatus1', s.io1, 28, ref ? ref.io1 : undefined, IO1),
         bitsRow('IOStatus2', s.io2, 28, ref ? ref.io2 : undefined, IO2),
@@ -1759,7 +1770,7 @@
       }
       sel.disabled = btn.disabled = !!u.open;
       if (u.open) {
-        now.textContent = tr('{0} · playing', [kHz(u.rate)]);
+        now.textContent = u.rate ? tr('{0} · playing', [kHz(u.rate)]) : tr('playing');
         note.textContent = tr('{0} is playing to the ADI-2 and sets the rate while it plays.', [u.owner || tr('A program')]);
       } else {
         const sr = S.p.get(key(12, SEC.device.srate.idx));
@@ -1842,7 +1853,7 @@
         if (kind === 'in') facts.push(h('span', { class: 'hint inl' }, a ? (a.state === 'running' ? tr('playing into the ADI-2') : tr('connected')) : tr('connected, no audio yet')));
         else facts.push(h('span', { class: 'hint inl' }, a ? (a.linked ? tr('gets the ADI-2\'s sound') : tr('connected – nothing to play (source Off)')) : tr('connected, no audio yet')));
       } else if (d.paired) facts.push(h('span', { class: 'hint inl' }, tr('not connected')));
-      else facts.push(h('span', { class: 'hint inl' }, d.rssi !== null && d.rssi !== undefined ? tr('found · signal {0}', [d.rssi > -60 ? 'strong' : d.rssi > -75 ? 'good' : 'weak']) : tr('found')));
+      else facts.push(h('span', { class: 'hint inl' }, d.rssi !== null && d.rssi !== undefined ? tr('found · signal {0}', [d.rssi > -60 ? tr('strong') : d.rssi > -75 ? tr('good') : tr('weak')]) : tr('found')));
       if (d.battery !== null && d.battery !== undefined) facts.push(h('span', { class: 'hint inl' }, tr('battery {0} %', [d.battery])));
       let vol = null;
       if (kind === 'out' && d.connected && a && a.volume !== null && a.volume !== undefined) {
@@ -1936,7 +1947,7 @@
         sec(info, { icon: 'info' }),
       ]);
       clearTimeout(tick);
-      if (visible || scanning) tick = setTimeout(() => { if (wrap.isConnected) draw(); }, 1000);
+      if (visible || scanning) tick = retick(wrap, draw, (t) => { tick = t; });
     }
     btSubs.add(draw);
     for (const c of outputs()) { const r = resolve(c.key, 'src'); if (r) sub(key(r.addr, r.idx), () => { if (wrap.isConnected) draw(); }); }
@@ -2354,7 +2365,7 @@
         h('p', { class: 'hint help' }, tr('A package update in progress (apt, unattended-upgrades) is finished first.')),
         h('p', { class: 'hint help' }, tr('This doesn’t help with power cuts – the ADI-2 and the Pi lose power at the same moment. With Auto Standby on the ADI-2, the Pi shuts down with it.')));
       clearTimeout(tick);
-      if (t.enabled && t.shutdownAt) tick = setTimeout(() => { if (body.isConnected) draw(); }, 1000); // countdown
+      if (t.enabled && t.shutdownAt) tick = retick(body, draw, (x) => { tick = x; }); // countdown
     }
     trSubs.add(draw);
     draw();
@@ -2519,7 +2530,7 @@
     const r = resolve(it.ch, it.id, it.side || 'L');
     if (!r) return `${ch} ${it.id}`;
     let v;
-    if (r.param.type === 'toggle') v = it.value ? 'on' : 'off';
+    if (r.param.type === 'toggle') v = it.value ? tr('on') : tr('off');
     else if (r.param.type === 'select') v = nameOf(r.param, r.channel, it.value) ?? it.value;
     else v = `${fmt(it.value, r.param.decimals || 0)}${r.param.unit ? ` ${r.param.unit}` : ''}`;
     if (it.id === 'eqpreset' && it.value >= 2 && it.value <= 21) { const p = S.presets[it.value - 2]; v = `${it.value - 1}${p && p.name ? ` · ${p.name}` : ''}`; }
@@ -2558,7 +2569,7 @@
         h('div', { class: 'row' }, h('div', { class: 'lab' }, tr('Fade out'), h('small', null, tr('volume goes down 40 dB before the mute'))), h('div', { class: 'ctl' }, fade)),
         h('p', { class: 'hint help' }, tr('At the end the outputs are muted and their volume is put back, so unmuting plays at the earlier level. Outputs without Mute stay turned down.'))].filter(Boolean));
       clearTimeout(tick);
-      if (sl) tick = setTimeout(() => { if (body.isConnected) draw(); }, 1000);
+      if (sl) tick = retick(body, draw, (t) => { tick = t; });
     }
     autoSubs.add(draw);
     settingsSubs.add(draw);
@@ -2700,7 +2711,7 @@
         const until = h('input', { type: 'time', 'aria-label': tr('End time (optional)') });
         const days = DAYS.map((d, i) => { const cb = h('input', { type: 'checkbox', checked: true }); return { cb, i, el: h('label', { class: 'inline', style: { gap: '3px' } }, cb, d) }; });
         until.addEventListener('input', () => { endWrap.hidden = !until.value; });
-        extra.replaceChildren(at, 'until', until, ...days.map((d) => d.el));
+        extra.replaceChildren(at, tr('until'), until, ...days.map((d) => d.el));
         getExtra = () => ({ at: at.value, until: until.value || undefined, days: days.filter((d) => d.cb.checked).map((d) => d.i) });
       } else if (t === 'input-signal' || t === 'input-lost') {
         const sel = h('select', { 'aria-label': tr('Input') }, ...[['any', tr('AES or SPDIF')], ['aes', tr('AES')], ['spdif', tr('SPDIF')]].map(([v, l]) => h('option', { value: v, text: l })));
@@ -2708,7 +2719,7 @@
         getExtra = () => ({ input: sel.value });
       } else if (t === 'idle') {
         const min = h('input', { type: 'number', min: 1, max: 720, value: 30, style: { width: '70px' }, 'aria-label': tr('Minutes') });
-        extra.replaceChildren(min, 'min');
+        extra.replaceChildren(min, tr('min'));
         getExtra = () => ({ minutes: Number(min.value) });
       } else { extra.replaceChildren(); getExtra = () => ({}); }
       endWrap.hidden = true;
@@ -2777,7 +2788,7 @@
         h('div', { class: 'row' }, h('div', { class: 'lab' }, tr('Or when the battery is at')), h('div', { class: 'ctl' }, low)),
         h('p', { class: 'hint help' }, tr('Power back within the time: no shutdown. Works together with “Shut down with the ADI-2”. The UPS HAT uses I²C on GPIO2/3, so a 12 V trigger has to use another GPIO there.')));
       clearTimeout(tick);
-      if (u.shutdownAt && !u.shuttingDown) tick = setTimeout(() => { if (body.isConnected) draw(); }, 1000);
+      if (u.shutdownAt && !u.shuttingDown) tick = retick(body, draw, (t) => { tick = t; });
     }
     upsSubs.add(draw);
     draw();
@@ -3027,7 +3038,7 @@
       if (ip.enabled) {
         if (ip.pending) {
           now = tr('switching to {0} in {1}', [names[ip.pending.to] || ip.pending.to, hmmss(ip.pending.at + ip.delaySec * 1000 - Date.now())]);
-          tick = setTimeout(() => { if (body.isConnected) draw(); }, 500);
+          tick = retick(body, draw, (t) => { tick = t; }, 500);
         } else if (ip.current) now = tr('{0} – set by ADI-2-Pi', [names[ip.current] || ip.current]);
         else now = '–';
       }
@@ -3069,7 +3080,7 @@
           h('div', { class: 'lab' }, p.name, on.length ? h('span', { class: 'badge', style: { marginLeft: '6px' } }, on.join(' ')) : null, h('small', null, describeProfile(p))),
           h('div', { class: 'ctl', style: { flexWrap: 'wrap', justifyContent: 'flex-end' } },
             h('span', { class: 'hint', style: { margin: 0 } }, tr('Apply to')),
-            ...outputs().map((c) => h('button', { class: 'btn', title: tr('Apply to {0}', [chName(c)]), onclick: () => send({ t: 'profile', action: 'apply', id: p.id, ch: c.key }).then(() => toast(`${p.name} on ${chName(c)}`)).catch(() => {}) }, c.short)),
+            ...outputs().map((c) => h('button', { class: 'btn', title: tr('Apply to {0}', [chName(c)]), onclick: () => send({ t: 'profile', action: 'apply', id: p.id, ch: c.key }).then(() => toast(tr('{0} on {1}', [p.name, chName(c)]))).catch(() => {}) }, c.short)),
             h('button', { class: 'btn', title: tr('Store the current values of the same settings from the output it is active on (or Phones 3/4)'), onclick: () => {
               const from = outputs().find((c) => active[c.key] === p.id) || CH.ph34;
               const groups = PROFILE_GROUPS().map(([g]) => g).filter((g) => p.items.some((i) => PROFILE_IDS[g].includes(i.id)));
@@ -3159,7 +3170,7 @@
     const status = h('p', { class: 'hint' });
     const drawStatus = () => {
       const r = S.restore;
-      status.textContent = !r || r.state === 'idle' ? '' : r.state === 'running' ? tr('Restoring: {0} ({1}/{2})', [r.step || '', r.done, r.total]) : r.state === 'done' ? tr('Restore finished.') : tr('Restore: {0}', [r.message || 'error']);
+      status.textContent = !r || r.state === 'idle' ? '' : r.state === 'running' ? tr('Restoring: {0} ({1}/{2})', [r.step || '', r.done, r.total]) : r.state === 'done' ? tr('Restore finished.') : tr('Restore: {0}', [r.message || tr('error')]);
     };
     autoSubs.add(drawStatus);
     drawStatus();
