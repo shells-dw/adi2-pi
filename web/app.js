@@ -472,7 +472,7 @@
   function paramRow(ch, id, side) {
     const r = resolve(ch, id, side);
     if (!r || !available(r.param) || notOnUnit(ch, r)) return null;
-    if (r.param.lineOnly && !(r.channel && r.channel.line)) return null;
+    if (r.param.onlyCh && !(r.channel && r.param.onlyCh.includes(r.channel.key))) return null;
     const p = r.param;
     const label = p.id === 'ref' && r.channel && !r.channel.line ? (p.phonesLabel || p.label) : p.label;
     let ctl;

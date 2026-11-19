@@ -71,7 +71,7 @@ A parameter:
 | `first` | value of a `select`'s first name, by profile (default 0; `inref` on the ADI-2/4 Pro EX: −6) |
 | `hide` | select values that exist but aren't offered (EQ Preset 22 = clear) |
 | `only` / `not` | profiles that have / don't have the parameter |
-| `lineOnly` | Line Out only |
+| `onlyCh` | channels that have the parameter (`reartrs`: `ph34` only) |
 | `phonesLabel` | label on the phones outputs (`ref`: Hi-Power) |
 | `readonly` | can't be set (`srate`) |
 | `band`, `role` | EQ band 1–5 and `gain` / `freq` / `q` |
@@ -87,7 +87,7 @@ Resolving a name: `device` → address 12 and `params.device`; an EQ id → the 
 names on the ADI-2 DAC are `dacName` where given.
 
 **What to show:** a parameter applies when the model has it (`only`/`not`, the channel's `not`,
-`lineOnly`) **and** the unit reports it, i.e. its `addr.idx` is in `state.p`. The ADI-2 Pro EX,
+`onlyCh`) **and** the unit reports it, i.e. its `addr.idx` is in `state.p`. The ADI-2 Pro EX,
 for example, reports no Mute, Dim or Source for Phones 1/2; sets for those are refused (400).
 
 ## WebSocket `/ws`

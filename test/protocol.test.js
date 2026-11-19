@@ -168,3 +168,44 @@ test('status message: headphone jacks (ADI-2 Pro EX captures)', () => {
   assert.strictEqual(st(cases[0][0]).phones.ph34.overCurrent, false);
   assert.strictEqual(P.phoneJacks(st(cases[0][0]), 'dac'), null, 'not on the ADI-2 DAC');
 });
+
+test('Low Vol Ref is sent in 0.5 dB steps (RME example dump: 3.23 = −60 for the −30.0 dB default)', () => {
+  const m = P.parse(Buffer.from(bytes('F0 00 20 0D 73 01 1D 7F 44 F7')));
+  assert.deepStrictEqual(m.params, [{ addr: 3, idx: 23, value: -60 }]);
+  const { param } = cat.resolve('line', 'ldref');
+  assert.strictEqual(cat.toDisplay(param, -60), -30);
+  assert.strictEqual(cat.fromDisplay(param, -60), -120);
+  assert.strictEqual(cat.clampRaw(param, cat.fromDisplay(param, -90)), -180);
+  assert.strictEqual(cat.clampRaw(param, cat.fromDisplay(param, -20)), -40);
+});
+
+test('RME\'s example dump of an ADI-2/4 Pro SE: every setting is known, named and in range', () => {
+  const lines = require('fs').readFileSync(require('path').join(__dirname, 'fixtures', 'rme-example-se.txt'), 'utf8').split('\n').filter((l) => l.startsWith('F0'));
+  const dump = new Map();
+  for (const l of lines) for (const p of P.parse(Buffer.from(bytes(l.trim()))).params) dump.set(cat.key(p.addr, p.idx), p.value);
+  assert.strictEqual(dump.size, 282);
+  for (const [k, v] of dump) {
+    const l = cat.lookup(k);
+    assert.ok(l, `${k} is in the schema`);
+    const p = l.param;
+    const ch = cat.channelByKey[l.ch];
+    assert.ok(cat.available(p, 'se'), `${k} ${p.id} is offered on the SE`);
+    if (p.type === 'level') assert.strictEqual(cat.clampRaw(p, v), v, `${k} ${p.id} = ${v} is inside ${p.min} … ${p.max}`);
+    if (p.type === 'select') assert.notStrictEqual(cat.valueName(p, 'se', ch, v), null, `${k} ${p.id} = ${v} has a name`);
+    if (p.type === 'toggle') assert.ok(v === 0 || v === 1, `${k} ${p.id} = ${v}`);
+  }
+  // factory values in it, by their table defaults
+  const shown = (ch, id) => { const r = cat.resolve(ch, id); return cat.toDisplay(r.param, dump.get(cat.key(r.addr, r.idx))); };
+  for (const ch of ['line', 'ph12', 'ph34']) {
+    assert.strictEqual(shown(ch, 'ldref'), -30);
+    assert.strictEqual(shown(ch, 'ldbass'), 7);
+    assert.strictEqual(shown(ch, 'ldtreb'), 7);
+    assert.strictEqual(shown(ch, 'width'), 1);
+    assert.strictEqual(shown(ch, 'bal'), 0);
+  }
+  // Rear TRS Source is a Phones 3/4 setting (9.19); Line Out has none (no 3.19)
+  assert.ok(dump.has('9.19') && !dump.has('3.19') && !dump.has('6.19'));
+  assert.deepStrictEqual(cat.resolve('ph34', 'reartrs') && cat.key(9, 19), '9.19');
+  assert.strictEqual(cat.resolve('line', 'reartrs'), null);
+  assert.strictEqual(cat.lookup('3.19'), null);
+});
