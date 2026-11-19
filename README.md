@@ -206,6 +206,6 @@ project is not affiliated with RME.
 
 This is a private project, I am not affiliated with RME. I wrote this out of personal interest.
  
-This software changes levels on your ADI-2 interface. A wrong setting, a bug or an unexpected state can produce sudden loud output. Test new buttons at low monitor volume first.
+This software changes levels on your ADI-2 interface. A wrong setting, a bug or an unexpected state can produce sudden loud output. Test at low monitor volume first.
  
 The plugin is provided as is, without warranty of any kind; use it at your own risk.
